@@ -1,5 +1,6 @@
 const express = require("express");
 const cors = require("cors");
+const meetingRoutes = require("./src/routes/meetingroutes");
 require("dotenv").config();
 const connectDB = require("./src/config/db");
 
@@ -19,6 +20,7 @@ const startServer = async () => {
     res.send("its working");
   });
   const PORT = process.env.PORT || 5000;
+  app.use("/meetings", meetingRoutes);
 
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
