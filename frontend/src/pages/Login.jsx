@@ -1,21 +1,36 @@
 import { useState } from "react";
+import axios from "axios";
 
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const handleLogin = () => {
-         if(!email || !password)
-                {
-                    setError("Email and password are required");
-                    return;
-                }
-                setError("");
-                console.log("email:", email);
-                console.log("password:", password);
-                
+  const handleLogin = async () => {
+  if (!email || !password) {
+    setError("Email and password are required");
+    return;
+  }
 
-            }
+  try {
+    setError("");
+
+    const res = await axios.post("http://localhost:5000/auth/login", {
+      email,
+      password
+    });
+
+    localStorage.setItem("token", res.data.token);
+
+    console.log("Logged in:", res.data.user);
+
+    alert("Login successful");
+
+  
+  } catch (err) {
+    setError(err.response?.data?.message || "Login failed");
+  }
+};
+
 
   return (
  

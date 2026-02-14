@@ -16,9 +16,8 @@ const startServer = async () => {
   app.get("/", (req, res) => {
     res.send("MeetOps API Running");
   });
-  app.get("/api/test", (req, res) => {
-    res.send("its working");
-  });
+  const authRoutes = require("./src/routes/auth.route");
+  app.use("/auth", authRoutes);
   const PORT = process.env.PORT || 5000;
   app.use("/meetings", meetingRoutes);
 
