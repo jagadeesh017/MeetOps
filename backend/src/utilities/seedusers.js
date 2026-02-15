@@ -4,7 +4,7 @@ const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 const Employee = require("../models/employee");
 
-// connect using small-case env key
+
 mongoose.connect(process.env.mongo_uri);
 
 mongoose.connection.on("error", (err) => {
@@ -18,7 +18,7 @@ mongoose.connection.once("open", async () => {
   try {
     const password = await bcrypt.hash("123456", 10);
 
-    // delete old dummy users (safe)
+   
     await Employee.deleteMany({
       email: { $in: [
         "user1@mail.com",
@@ -39,7 +39,7 @@ mongoose.connection.once("open", async () => {
 
     await Employee.insertMany(users);
 
-    console.log("🎉 5 Dummy Users Created (password = 123456)");
+    console.log(" 5 Dummy Users Created (password = 123456)");
     process.exit();
 
   } catch (err) {

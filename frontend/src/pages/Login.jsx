@@ -1,10 +1,14 @@
 import { useState } from "react";
 import axios from "axios";
+import { useContext } from "react";
+import { AuthContext } from "../context/Authcontext";
 
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const { setUser } = useContext(AuthContext);
+
   const handleLogin = async () => {
   if (!email || !password) {
     setError("Email and password are required");
@@ -20,7 +24,7 @@ export default function Login() {
     });
 
     localStorage.setItem("token", res.data.token);
-
+    setUser(res.data.user);
     console.log("Logged in:", res.data.user);
 
     alert("Login successful");
