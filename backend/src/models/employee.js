@@ -16,8 +16,18 @@ const EmployeeSchema = new mongoose.Schema({
   password: {
     type: String,
     required: true
-  }
+  },
+  // Google Integration
+  googleRefreshToken: { type: String, default: null },
+  googleAccessToken: { type: String, default: null },
+  googleConnected: { type: Boolean, default: false },
+  googleEmail: { type: String, default: null },
+
+  // Zoom Integration
+  zoomRefreshToken: { type: String, default: null },
+  zoomAccessToken: { type: String, default: null },
+  zoomConnected: { type: Boolean, default: false },
+  zoomEmail: { type: String, default: null }
 });
 
 module.exports = mongoose.model('Employee', EmployeeSchema);
-  

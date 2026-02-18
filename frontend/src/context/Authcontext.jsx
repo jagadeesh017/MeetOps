@@ -8,7 +8,10 @@ export default function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem("token");
+    const token =
+    localStorage.getItem("token") ||
+    sessionStorage.getItem("token");
+
 
     if (!token) {
       setLoading(false);

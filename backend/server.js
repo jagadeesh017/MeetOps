@@ -1,10 +1,10 @@
+require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const meetingRoutes = require("./src/routes/meetingroutes");
-require("dotenv").config();
+const authRoutes = require("./src/routes/auth.route");
+const integrationRoutes = require("./src/routes/integrationRoutes");
 const connectDB = require("./src/config/db");
-
-console.log("SERVER FILE EXECUTING...");
 
 const startServer = async () => {
   await connectDB();
@@ -16,10 +16,11 @@ const startServer = async () => {
   app.get("/", (req, res) => {
     res.send("MeetOps API Running");
   });
-  const authRoutes = require("./src/routes/auth.route");
   app.use("/auth", authRoutes);
-  const PORT = process.env.PORT || 5000;
   app.use("/meetings", meetingRoutes);
+  app.use("/api/integrations", integrationRoutes);
+
+  const PORT = process.env.PORT || 5000;
 
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);

@@ -2,15 +2,13 @@ const mongoose = require("mongoose");
 
 const AttendeeSchema = new mongoose.Schema(
   {
-    name: { type: String, required: true },
+    name: { type: String, required: false },
     email: { type: String, required: true }
   },
   { _id: false }
 );
 
 const MeetingSchema = new mongoose.Schema({
-  
-
   title: {
     type: String,
     required: true
@@ -26,39 +24,96 @@ const MeetingSchema = new mongoose.Schema({
     required: true
   },
 
+  organizerEmail: {
+    type: String,
+    required: true
+  },
+
   platform: {
     type: String,
-    enum: ["teams", "zoom", "google"],
-    default: "teams"
+    enum: ["zoom", "meet", "google", "teams"],
+    default: "zoom",
+    required: false
   },
-  organizerEmail: {
-  type: String,
-  required: true
-},
+
   joinUrl: {
     type: String,
     default: ""
   },
 
-  attendees: [AttendeeSchema],
+  attendees: {
+    type: [AttendeeSchema],
+    default: []
+  },
+
+  timezone: {
+    type: String,
+    default: "UTC"
+  },
+
+  description: {
+    type: String,
+    default: ""
+  },
+
+  isRecurring: {
+    type: Boolean,
+    default: false
+  },
+
+  recurrencePattern: {
+    type: String,
+    enum: ["daily", "weekly", "monthly", null],
+    default: null,
+    required: false
+  },
+
+  recurrenceEndDate: {
+    type: Date,
+    default: null,
+    required: false
+  },
+
+  recurrenceCount: {
+    type: Number,
+    default: null,
+    required: false
+  },
+
+  seriesId: {
+    type: String,
+    default: null,
+    required: false
+  },
 
   clusterUsed: {
     type: String,
-    default: null
+    default: null,
+    required: false
+  },
+
+  status: {
+    type: String,
+    enum: ["scheduled", "cancelled", "completed"],
+    default: "scheduled"
+  },
+
+  calcomBookingId: {
+    type: String,
+    default: null,
+    required: false
+  },
+
+  calcomBookingUid: {
+    type: String,
+    default: null,
+    required: false
   },
 
   createdAt: {
     type: Date,
     default: Date.now
-  },
-  status: {
-  type: String,
-  enum: ["scheduled", "cancelled", "completed"],
-  default: "scheduled"
-}
-
-
-
+  }
 });
 
 module.exports = mongoose.model("Meeting", MeetingSchema);
