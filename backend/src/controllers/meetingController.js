@@ -4,39 +4,158 @@ const { createGoogleMeetMeeting } = require("../services/google-meet-service");
 const { sendMeetingInvites } = require("../services/email-invite-service");
 const Employee = require("../models/employee");
 
+const DEFAULT_TIMEZONE = "IST";
+
+/**
+ * Helper to check for meeting conflicts for a user (as organizer or attendee)
+ */
+async function checkConflict(userEmail, startTime, endTime, excludeMeetingId = null) {
+  const query = {
+    status: { $ne: "cancelled" },
+    startTime: { $lt: endTime },
+    endTime: { $gt: startTime },
+    $or: [{ organizerEmail: userEmail }, { "attendees.email": userEmail }],
+  };
+
+  if (excludeMeetingId) {
+    query._id = { $ne: excludeMeetingId };
+  }
+
+  return await Meeting.findOne(query);
+}
+
 async function createMeetingLink(platform, meetingData, user) {
-  if (platform === 'zoom') {
+  if (platform === "zoom") {
     if (!user.zoomConnected) {
-      return { success: false, error: 'Zoom not connected' };
+      return { success: false, error: "Zoom not connected" };
     }
-    // Zoom tokens need explicit refresh logic if we don't have a middleware
+
     try {
-      // For Zoom, we often just use the access_token if it's fresh, 
-      // but here we might need to refresh it. For simplicity, let's try with access_token first.
-      return createZoomMeeting(meetingData, user.zoomAccessToken);
+      let result = await createZoomMeeting(meetingData, user.zoomAccessToken);
+
+      // If unauthorized, try to refresh token and retry once
+      if (!result.success && result.status === 401 && user.zoomRefreshToken) {
+        console.log("🔄 Zoom token expired, attempting refresh...");
+        try {
+          const refreshedTokens = await refreshZoomToken(user.zoomRefreshToken);
+
+          // Update user in DB
+          user.zoomAccessToken = refreshedTokens.access_token;
+          if (refreshedTokens.refresh_token) {
+            user.zoomRefreshToken = refreshedTokens.refresh_token;
+          }
+          await user.save();
+
+          console.log("✅ Zoom token refreshed, retrying meeting creation...");
+          // Retry with new token
+          result = await createZoomMeeting(meetingData, user.zoomAccessToken);
+        } catch (refreshErr) {
+          console.error("❌ Zoom token refresh failed:", refreshErr.message);
+          return { success: false, error: "Zoom token expired and refresh failed." };
+        }
+      }
+
+      return result;
     } catch (err) {
       return { success: false, error: err.message };
     }
   }
-  if (platform === 'meet' || platform === 'google') {
+
+  if (platform === "meet" || platform === "google") {
     if (!user.googleConnected) {
-      return { success: false, error: 'Google Meet not connected' };
+      return { success: false, error: "Google Meet not connected" };
     }
-    return createGoogleMeetMeeting(meetingData, {
+
+    const result = await createGoogleMeetMeeting(meetingData, {
       refreshToken: user.googleRefreshToken,
-      accessToken: user.googleAccessToken
+      accessToken: user.googleAccessToken,
     });
+
+    // If Google refreshed the token internally, save it
+    if (result.success && result.newTokens) {
+      console.log("💾 Saving refreshed Google tokens...");
+      if (result.newTokens.access_token) {
+        user.googleAccessToken = result.newTokens.access_token;
+      }
+      if (result.newTokens.refresh_token) {
+        user.googleRefreshToken = result.newTokens.refresh_token;
+      }
+      await user.save();
+    }
+
+    return result;
   }
+
   return { success: false, error: `Platform "${platform}" is not yet supported.` };
 }
 
+function buildInvitePayload({
+  title,
+  startTime,
+  endTime,
+  organizerEmail,
+  attendees,
+  description,
+  joinUrl,
+  platform,
+}) {
+  return {
+    title,
+    startTime,
+    endTime,
+    organizerEmail,
+    attendees,
+    description: description || "",
+    joinUrl,
+    platform,
+  };
+}
+
+function sendInvitesIfAny(payload) {
+  if (!payload.attendees || payload.attendees.length === 0) {
+    return;
+  }
+
+  sendMeetingInvites(payload).then((result) => {
+    console.log(`📧 Invites: sent=${result.sent}, failed=${result.failed}`);
+  });
+}
+
+function applyRecurrence(start, end, recurrencePattern) {
+  switch (recurrencePattern) {
+    case "daily":
+      start.setDate(start.getDate() + 1);
+      end.setDate(end.getDate() + 1);
+      break;
+    case "weekly":
+      start.setDate(start.getDate() + 7);
+      end.setDate(end.getDate() + 7);
+      break;
+    case "monthly":
+      start.setMonth(start.getMonth() + 1);
+      end.setMonth(end.getMonth() + 1);
+      break;
+    default:
+      break;
+  }
+}
 
 exports.createMeeting = async (req, res) => {
   try {
     const {
-      title, startTime, endTime, organizerEmail, attendees, platform,
-      timezone, description, isRecurring, recurrencePattern,
-      recurrenceEndDate, recurrenceCount
+      title,
+      startTime,
+      endTime,
+      organizerEmail,
+      attendees,
+      platform,
+      timezone,
+      description,
+      isRecurring,
+      recurrencePattern,
+      recurrenceEndDate,
+      recurrenceCount,
+      ignoreBusy, // New flag to ignore busy attendees
     } = req.body;
 
     const user = await Employee.findById(req.user.id);
@@ -51,16 +170,17 @@ exports.createMeeting = async (req, res) => {
     const newStart = new Date(startTime);
     const newEnd = new Date(endTime);
 
-    if (isNaN(newStart.getTime())) {
+    if (Number.isNaN(newStart.getTime())) {
       return res.status(400).json({
         error: "Invalid startTime format. Expected ISO 8601 date string.",
-        received: startTime
+        received: startTime,
       });
     }
-    if (isNaN(newEnd.getTime())) {
+
+    if (Number.isNaN(newEnd.getTime())) {
       return res.status(400).json({
         error: "Invalid endTime format. Expected ISO 8601 date string.",
-        received: endTime
+        received: endTime,
       });
     }
 
@@ -68,166 +188,248 @@ exports.createMeeting = async (req, res) => {
       return res.status(400).json({ error: "endTime must be after startTime" });
     }
 
-    const emails = [
-      organizerEmail,
-      ...(attendees || []).map(a => a.email)
-    ];
+    const normalizedTimezone = timezone || DEFAULT_TIMEZONE;
+    const safeDescription = description || "";
+    const safeAttendees = attendees || [];
 
-    await Meeting.findOne({
-      startTime: { $lt: newEnd },
-      endTime: { $gt: newStart },
-      $or: [
-        { organizerEmail: { $in: emails } },
-        { "attendees.email": { $in: emails } }
-      ]
-    });
-
-    if (isRecurring && recurrencePattern) {
-      const seriesId = `series-${Date.now()}`;
-      const meetings = [];
-
-      const videoResult = await createMeetingLink(platform, {
-        title,
-        startTime: newStart,
-        endTime: newEnd,
-        organizerEmail,
-        attendees,
-        timezone: timezone || "UTC",
-        description: description || ""
-      }, user);
-
-      if (!videoResult.success) {
-        return res.status(502).json({ error: videoResult.error });
+    // --- CONFLICT CHECK ---
+    const proposedMeetings = [];
+    if (isRecurring && (recurrencePattern || recurrenceCount)) {
+      const maxOccurrences = recurrenceCount || 365;
+      let recurrenceEnd = null;
+      if (recurrenceEndDate) {
+        recurrenceEnd = new Date(recurrenceEndDate);
+        recurrenceEnd.setHours(23, 59, 59, 999);
       }
-
-      const seriesJoinUrl = videoResult.meetingUrl;
-      console.log(`✅ ${platform} recurring meeting link created:`, seriesJoinUrl);
 
       let currentStart = new Date(newStart);
       let currentEnd = new Date(newEnd);
 
-      const maxOccurrences = recurrenceCount || 10;
-      const endDate = recurrenceEndDate ? new Date(recurrenceEndDate) : null;
-
-      for (let i = 0; i < maxOccurrences; i++) {
-        if (endDate && currentStart > endDate) break;
-
-        meetings.push({
-          title,
+      for (let i = 0; i < maxOccurrences; i += 1) {
+        if (recurrenceEnd && currentStart > recurrenceEnd) break;
+        proposedMeetings.push({
           startTime: new Date(currentStart),
           endTime: new Date(currentEnd),
-          organizerEmail,
-          attendees,
-          platform,
-          timezone: timezone || "UTC",
-          description: description || "",
-          joinUrl: seriesJoinUrl,
-          isRecurring: true,
-          recurrencePattern,
-          recurrenceEndDate: endDate,
-          recurrenceCount: maxOccurrences,
-          seriesId
         });
+        applyRecurrence(currentStart, currentEnd, recurrencePattern);
+      }
+    } else {
+      proposedMeetings.push({ startTime: newStart, endTime: newEnd });
+    }
 
-        switch (recurrencePattern) {
-          case 'daily':
-            currentStart.setDate(currentStart.getDate() + 1);
-            currentEnd.setDate(currentEnd.getDate() + 1);
-            break;
-          case 'weekly':
-            currentStart.setDate(currentStart.getDate() + 7);
-            currentEnd.setDate(currentEnd.getDate() + 7);
-            break;
-          case 'monthly':
-            currentStart.setMonth(currentStart.getMonth() + 1);
-            currentEnd.setMonth(currentEnd.getMonth() + 1);
-            break;
+    // Check organizer for conflicts (always required)
+    for (const m of proposedMeetings) {
+      const conflict = await checkConflict(organizerEmail, m.startTime, m.endTime);
+      if (conflict) {
+        return res.status(409).json({
+          error: "Organizer has a meeting conflict",
+          message: `You have a conflicting meeting at ${m.startTime.toLocaleString()}: "${conflict.title}"`,
+          conflict,
+        });
+      }
+    }
+
+    // Check attendees for conflicts (only if not ignored)
+    if (!ignoreBusy && safeAttendees.length > 0) {
+      const busyAttendees = [];
+      
+      for (const m of proposedMeetings) {
+        for (const attendee of safeAttendees) {
+          const email = attendee.email || attendee;
+          const conflict = await checkConflict(email, m.startTime, m.endTime);
+          if (conflict && !busyAttendees.find(ba => ba.email === email)) {
+            busyAttendees.push({
+              email,
+              name: attendee.name || email,
+              conflict: {
+                title: conflict.title,
+                startTime: conflict.startTime,
+                endTime: conflict.endTime,
+              },
+            });
+          }
         }
       }
 
+      if (busyAttendees.length > 0) {
+        return res.status(409).json({
+          error: "Some attendees are busy",
+          message: "One or more attendees have conflicting meetings",
+          busyAttendees,
+          canProceed: true, // Indicates user can ignore and proceed
+        });
+      }
+    }
+    // --- END CONFLICT CHECK ---
+
+    const videoResult = await createMeetingLink(
+      platform,
+      {
+        title,
+        startTime: newStart,
+        endTime: newEnd,
+        organizerEmail,
+        attendees: safeAttendees,
+        timezone: normalizedTimezone,
+        description: safeDescription,
+      },
+      user
+    );
+
+    if (!videoResult.success) {
+      return res.status(502).json({ error: videoResult.error });
+    }
+
+    if (isRecurring && (recurrencePattern || recurrenceCount)) {
+      const seriesId = `series-${Date.now()}`;
+      const seriesJoinUrl = videoResult.meetingUrl;
+      const maxOccurrences = recurrenceCount || 365;
+
+      let recurrenceEnd = null;
+      if (recurrenceEndDate) {
+        recurrenceEnd = new Date(recurrenceEndDate);
+        recurrenceEnd.setHours(23, 59, 59, 999);
+      }
+
+      const meetings = proposedMeetings.map((m) => ({
+        ...m,
+        title,
+        organizerEmail,
+        attendees: safeAttendees,
+        platform,
+        timezone: normalizedTimezone,
+        description: safeDescription,
+        joinUrl: seriesJoinUrl,
+        isRecurring: true,
+        recurrencePattern,
+        recurrenceEndDate: recurrenceEnd,
+        recurrenceCount: maxOccurrences,
+        seriesId,
+      }));
+
       const createdMeetings = await Meeting.insertMany(meetings);
 
-      if (attendees && attendees.length > 0) {
-        sendMeetingInvites({
-          title, startTime: newStart, endTime: newEnd,
-          organizerEmail, attendees,
-          description: description || '',
+      sendInvitesIfAny(
+        buildInvitePayload({
+          title,
+          startTime: newStart,
+          endTime: newEnd,
+          organizerEmail,
+          attendees: safeAttendees,
+          description: safeDescription,
           joinUrl: seriesJoinUrl,
           platform,
-        }).then(r => console.log(`📧 Recurring invites: sent=${r.sent}, failed=${r.failed}`));
-      }
+        })
+      );
 
-      res.status(201).json({
+      return res.status(201).json({
         message: `Created ${createdMeetings.length} recurring meetings`,
         meetings: createdMeetings,
-        seriesId
+        seriesId,
       });
-    } else {
-      const videoResult = await createMeetingLink(platform, {
-        title,
-        startTime: newStart,
-        endTime: newEnd,
-        organizerEmail,
-        attendees,
-        timezone: timezone || "UTC",
-        description: description || ""
-      }, user);
-
-      if (!videoResult.success) {
-        return res.status(502).json({ error: videoResult.error });
-      }
-
-      const joinUrl = videoResult.meetingUrl;
-      const externalMeetingId = videoResult.meetingId || videoResult.eventId || null;
-      console.log(`✅ ${platform} meeting created:`, joinUrl);
-
-      const meeting = await Meeting.create({
-        title,
-        startTime: newStart,
-        endTime: newEnd,
-        organizerEmail,
-        attendees,
-        platform,
-        timezone: timezone || "UTC",
-        description: description || "",
-        joinUrl,
-        calcomBookingId: externalMeetingId,
-        calcomBookingUid: externalMeetingId,
-        isRecurring: false
-      });
-
-      if (attendees && attendees.length > 0) {
-        sendMeetingInvites({
-          title, startTime: newStart, endTime: newEnd,
-          organizerEmail, attendees,
-          description: description || '',
-          joinUrl,
-          platform,
-        }).then(r => console.log(`📧 Invites: sent=${r.sent}, failed=${r.failed}`));
-      }
-
-      res.status(201).json(meeting);
     }
+
+    const joinUrl = videoResult.meetingUrl;
+
+    const meeting = await Meeting.create({
+      title,
+      startTime: newStart,
+      endTime: newEnd,
+      organizerEmail,
+      attendees: safeAttendees,
+      platform,
+      timezone: normalizedTimezone,
+      description: safeDescription,
+      joinUrl,
+      isRecurring: false,
+    });
+
+    sendInvitesIfAny(
+      buildInvitePayload({
+        title,
+        startTime: newStart,
+        endTime: newEnd,
+        organizerEmail,
+        attendees: safeAttendees,
+        description: safeDescription,
+        joinUrl,
+        platform,
+      })
+    );
+
+    return res.status(201).json(meeting);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
   }
 };
 
 exports.getMeetings = async (req, res) => {
   try {
     const { userEmail } = req.query;
-    let query = {};
-    if (userEmail) {
-      query = {
-        $or: [
-          { organizerEmail: userEmail },
-          { "attendees.email": userEmail }
-        ]
-      };
-    }
+
+    const query = userEmail
+      ? {
+        $or: [{ organizerEmail: userEmail }, { "attendees.email": userEmail }],
+      }
+      : {};
+
     const meetings = await Meeting.find(query).sort({ startTime: 1 });
-    res.json(meetings);
+    return res.json(meetings);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: err.message });
+  }
+};
+
+/**
+ * Check availability of attendees for a given time slot
+ * Returns list of busy attendees with their conflicting meetings
+ */
+exports.checkAttendeeAvailability = async (req, res) => {
+  try {
+    const { attendees, startTime, endTime, excludeMeetingId } = req.body;
+
+    if (!attendees || !Array.isArray(attendees) || attendees.length === 0) {
+      return res.status(400).json({ message: "Attendees array is required" });
+    }
+
+    if (!startTime || !endTime) {
+      return res.status(400).json({ message: "Start time and end time are required" });
+    }
+
+    const newStart = new Date(startTime);
+    const newEnd = new Date(endTime);
+
+    if (Number.isNaN(newStart.getTime()) || Number.isNaN(newEnd.getTime())) {
+      return res.status(400).json({ message: "Invalid date format" });
+    }
+
+    const busyAttendees = [];
+
+    // Check each attendee for conflicts
+    for (const attendee of attendees) {
+      const email = attendee.email || attendee;
+      const conflict = await checkConflict(email, newStart, newEnd, excludeMeetingId);
+      
+      if (conflict) {
+        busyAttendees.push({
+          email,
+          name: attendee.name || email,
+          conflict: {
+            title: conflict.title,
+            startTime: conflict.startTime,
+            endTime: conflict.endTime,
+            joinUrl: conflict.joinUrl,
+          },
+        });
+      }
+    }
+
+    return res.json({
+      available: busyAttendees.length === 0,
+      busyAttendees,
+      checkedCount: attendees.length,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
   }
 };

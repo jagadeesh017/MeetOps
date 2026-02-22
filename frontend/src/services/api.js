@@ -30,4 +30,18 @@ export const createMeeting = async (meetingData) => {
     return response.data;
 };
 
+export const checkAttendeeAvailability = async (attendees, startTime, endTime) => {
+    const response = await api.post("/meetings/check-availability", {
+        attendees,
+        startTime,
+        endTime,
+    });
+    return response.data;
+};
+
+export const disconnectIntegration = async (platform) => {
+    const response = await api.post("/integrations/disconnect", { platform });
+    return response.data;
+};
+
 export default api;

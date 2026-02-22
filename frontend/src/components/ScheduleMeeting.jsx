@@ -1,6 +1,6 @@
 import { useState, useContext, useEffect, useRef } from 'react';
 import { AuthContext } from '../context/Authcontext';
-import { createMeeting } from '../services/api';
+import { createMeeting, checkAttendeeAvailability } from '../services/api';
 import { getTimezoneList } from '../utils/calendarUtils';
 import { getIntegrationStatus } from '../services/integrations';
 import api from '../services/api';
@@ -9,12 +9,14 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
     const { user } = useContext(AuthContext);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
-    const [conflictWarning, setConflictWarning] = useState(null);
     const [integrations, setIntegrations] = useState({
         google: { connected: false },
         zoom: { connected: false }
     });
     const [integrationWarning, setIntegrationWarning] = useState(null);
+    const [busyAttendees, setBusyAttendees] = useState([]);
+    const [showBusyWarning, setShowBusyWarning] = useState(false);
+    const [checkingAvailability, setCheckingAvailability] = useState(false);
 
     // Get next 30-minute slot
     const getNextTimeSlot = () => {
@@ -62,7 +64,7 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
     const platforms = [
         { value: 'zoom', label: 'Zoom' },
         { value: 'meet', label: 'Google Meet' },
-        { value: 'teams', label: 'Microsoft Teams (coming soon)' },
+        { value: 'teams', label: 'Microsoft Teams' },
     ];
 
     useEffect(() => {
@@ -70,7 +72,7 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
             try {
                 const status = await getIntegrationStatus();
                 setIntegrations(status);
-            } catch (err) {
+            } catch {
                 console.error('Failed to fetch integration status');
             }
         };
@@ -174,10 +176,9 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
         }
     };
 
-    const handleSubmit = async (e) => {
+    const handleSubmit = async (e, forceIgnoreBusy = false) => {
         e.preventDefault();
         setError(null);
-        setConflictWarning(null);
 
         const startDateTime = new Date(`${formData.startDate}T${formData.startTime}`);
         const endDateTime = new Date(`${formData.endDate}T${formData.endTime}`);
@@ -200,6 +201,7 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
             recurrencePattern: formData.isRecurring ? formData.recurrencePattern : null,
             recurrenceEndDate: formData.isRecurring && formData.recurrenceEndDate ? formData.recurrenceEndDate : null,
             recurrenceCount: formData.isRecurring && !formData.recurrenceEndDate ? parseInt(formData.recurrenceCount) : null,
+            ignoreBusy: forceIgnoreBusy,
         };
 
         setLoading(true);
@@ -209,16 +211,59 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
             onClose();
         } catch (err) {
             console.error('Error creating meeting:', err);
-            const errorMsg = err.response?.data?.message || err.response?.data?.error;
-
-            if (errorMsg && errorMsg.includes('conflict')) {
-                setConflictWarning(errorMsg + ' - Meeting will still be created.');
+            
+            // Check if it's a busy attendees error
+            if (err.response?.status === 409 && err.response?.data?.canProceed && err.response?.data?.busyAttendees) {
+                setBusyAttendees(err.response.data.busyAttendees);
+                setShowBusyWarning(true);
             } else {
+                const errorMsg = err.response?.data?.message || err.response?.data?.error;
                 setError(errorMsg || 'Failed to create meeting');
             }
         } finally {
             setLoading(false);
         }
+    };
+
+    const handleCheckAvailability = async () => {
+        if (attendees.length === 0) {
+            setError('Please add at least one attendee to check availability');
+            return;
+        }
+
+        setCheckingAvailability(true);
+        setBusyAttendees([]);
+        setError(null);
+
+        const startDateTime = new Date(`${formData.startDate}T${formData.startTime}`);
+        const endDateTime = new Date(`${formData.endDate}T${formData.endTime}`);
+
+        try {
+            const result = await checkAttendeeAvailability(
+                attendees.map(a => ({ name: a.name, email: a.email })),
+                startDateTime.toISOString(),
+                endDateTime.toISOString()
+            );
+
+            if (result.available) {
+                setError(null);
+                setBusyAttendees([]);
+                alert('✅ All attendees are available for this time slot!');
+            } else {
+                setBusyAttendees(result.busyAttendees);
+                setShowBusyWarning(true);
+            }
+        } catch (err) {
+            console.error('Error checking availability:', err);
+            setError('Failed to check availability. Please try again.');
+        } finally {
+            setCheckingAvailability(false);
+        }
+    };
+
+    const handleProceedAnyway = (e) => {
+        setShowBusyWarning(false);
+        handleSubmit(e, true);
     };
 
     return (
@@ -248,16 +293,51 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
                             </div>
                         )}
 
-                        {conflictWarning && (
-                            <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded p-3 text-yellow-700 dark:text-yellow-400 text-sm">
-                                ⚠️ {conflictWarning}
-                            </div>
-                        )}
 
                         {integrationWarning && (
                             <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded p-3 text-blue-700 dark:text-blue-400 text-sm flex justify-between items-center">
                                 <span>⚠️ {integrationWarning}</span>
                                 <a href="/dashboard" className="text-blue-600 dark:text-[#6264a7] font-semibold underline">Connect now</a>
+                            </div>
+                        )}
+
+                        {showBusyWarning && busyAttendees.length > 0 && (
+                            <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-700 rounded p-4 text-yellow-800 dark:text-yellow-300 text-sm">
+                                <div className="flex items-start gap-2 mb-2">
+                                    <span className="text-lg">⚠️</span>
+                                    <div className="flex-1">
+                                        <p className="font-semibold mb-1">Some attendees are busy</p>
+                                        <p className="text-xs mb-2">The following attendees have conflicting meetings:</p>
+                                        <ul className="space-y-1 text-xs">
+                                            {busyAttendees.map((attendee, idx) => (
+                                                <li key={idx} className="ml-4">
+                                                    <strong>{attendee.name}</strong> ({attendee.email})
+                                                    <br />
+                                                    <span className="text-yellow-600 dark:text-yellow-400">
+                                                        Busy with: "{attendee.conflict.title}" 
+                                                        ({new Date(attendee.conflict.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - 
+                                                        {new Date(attendee.conflict.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
+                                                    </span>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                        <div className="flex gap-2 mt-3">
+                                            <button
+                                                onClick={handleProceedAnyway}
+                                                disabled={loading}
+                                                className="px-3 py-1.5 text-xs font-medium bg-yellow-600 dark:bg-yellow-700 text-white rounded hover:bg-yellow-700 dark:hover:bg-yellow-600 transition disabled:opacity-50"
+                                            >
+                                                Proceed Anyway
+                                            </button>
+                                            <button
+                                                onClick={() => setShowBusyWarning(false)}
+                                                className="px-3 py-1.5 text-xs font-medium bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-300 dark:hover:bg-gray-600 transition"
+                                            >
+                                                Cancel
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         )}
 
@@ -395,6 +475,14 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
                                             </button>
                                         </div>
                                     ))}
+                                    <button
+                                        type="button"
+                                        onClick={handleCheckAvailability}
+                                        disabled={checkingAvailability}
+                                        className="w-full mt-2 px-3 py-1.5 text-xs font-medium text-blue-600 dark:text-[#6264a7] border border-blue-300 dark:border-[#6264a7] rounded hover:bg-blue-50 dark:hover:bg-[#3d3d3d] transition disabled:opacity-50"
+                                    >
+                                        {checkingAvailability ? '⏳ Checking...' : '🔍 Check Availability'}
+                                    </button>
                                 </div>
                             )}
                         </div>
