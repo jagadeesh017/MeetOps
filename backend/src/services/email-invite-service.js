@@ -142,7 +142,6 @@ async function sendMeetingInvites(meetingData) {
   const { title, organizerEmail, attendees = [] } = meetingData;
 
   if (attendees.length === 0) {
-    console.log('ℹ️  No attendees to invite.');
     return { sent: 0, failed: 0, errors: [] };
   }
 
@@ -150,7 +149,6 @@ async function sendMeetingInvites(meetingData) {
   try {
     transporter = createTransporter();
   } catch (err) {
-    console.warn('⚠️  Email not configured:', err.message);
     return { sent: 0, failed: 0, errors: [err.message] };
   }
 
@@ -173,10 +171,8 @@ async function sendMeetingInvites(meetingData) {
           contentType: 'text/calendar; method=REQUEST',
         }],
       });
-      console.log(`✅ Invite sent to ${attendee.email}`);
       results.sent++;
     } catch (err) {
-      console.error(`❌ Failed to send invite to ${attendee.email}:`, err.message);
       results.failed++;
       results.errors.push(`${attendee.email}: ${err.message}`);
     }

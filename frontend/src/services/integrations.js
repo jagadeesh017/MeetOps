@@ -14,3 +14,8 @@ export const connectZoom = async () => {
     const response = await api.get('/api/integrations/zoom/connect');
     return response.data; // { url }
 };
+
+export const disconnectIntegration = async (platform) => {
+    const response = await api.post('/api/integrations/disconnect', { platform });
+    return response.data;
+};

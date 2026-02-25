@@ -12,7 +12,7 @@ function getGoogleClient() {
     );
 }
 
-const ZOOM_SCOPES = 'meeting:write user:read';
+const ZOOM_SCOPES = 'meeting:write:meeting meeting:write:meeting:admin meeting:write meeting:write:admin user:read:user user:read';
 
 function getZoomRedirectUri() {
     return (process.env.ZOOM_REDIRECT_URI || 'http://localhost:5000/api/integrations/zoom/callback').trim();
@@ -24,7 +24,7 @@ exports.getGoogleAuthUrl = (req, res) => {
         access_type: 'offline',
         scope: GOOGLE_SCOPES,
         prompt: 'consent',
-        state: req.user.id // Pass user ID through state to identify them in callback
+        state: req.user.id 
     });
     res.json({ url });
 };
@@ -37,7 +37,7 @@ exports.googleCallback = async (req, res) => {
     try {
         const { tokens } = await oauth2Client.getToken(code);
 
-        // Get user info to store the connected email
+     
         oauth2Client.setCredentials(tokens);
         const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
         const userInfo = await oauth2.userinfo.get();
@@ -49,7 +49,7 @@ exports.googleCallback = async (req, res) => {
             googleEmail: userInfo.data.email
         });
 
-        // Redirect back to frontend
+       
         res.redirect('http://localhost:5173/dashboard?googleConnected=true');
     } catch (err) {
         console.error('Google OAuth Error:', err.message);
@@ -59,7 +59,7 @@ exports.googleCallback = async (req, res) => {
 
 exports.getZoomAuthUrl = (req, res) => {
     const redirectUri = getZoomRedirectUri();
-    const url = `https://zoom.us/oauth/authorize?response_type=code&client_id=${process.env.ZOOM_CLIENT_ID?.trim()}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${req.user.id}&scope=meeting:write%20user:read:user`;
+    const url = `https://zoom.us/oauth/authorize?response_type=code&client_id=${process.env.ZOOM_CLIENT_ID?.trim()}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${req.user.id}&scope=${encodeURIComponent(ZOOM_SCOPES)}`;
     res.json({ url });
 };
 
@@ -72,7 +72,7 @@ exports.zoomCallback = async (req, res) => {
         console.log('DEBUG: Zoom Callback received, userId:', userId);
         const authHeader = Buffer.from(`${process.env.ZOOM_CLIENT_ID?.trim()}:${process.env.ZOOM_CLIENT_SECRET?.trim()}`).toString('base64');
 
-        // Use form data for better compatibility
+      
         const params = new URLSearchParams();
         params.append('grant_type', 'authorization_code');
         params.append('code', code);
@@ -85,12 +85,12 @@ exports.zoomCallback = async (req, res) => {
             }
         });
 
-        const { access_token, refresh_token } = response.data;
-        console.log('DEBUG: Tokens received from Zoom');
+        const { access_token, refresh_token, scope } = response.data;
+        console.log('DEBUG: Tokens received from Zoom, scope:', scope);
 
         let zoomEmail = null;
         try {
-            // Get user info (optional, don't fail if scope is missing)
+            
             const userRes = await axios.get('https://api.zoom.us/v2/users/me', {
                 headers: { Authorization: `Bearer ${access_token}` }
             });
@@ -133,6 +133,34 @@ exports.getIntegrationStatus = async (req, res) => {
             }
         });
     } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
+exports.disconnectIntegration = async (req, res) => {
+    const { platform } = req.body;
+    const userId = req.user.id;
+
+    try {
+        const updateData = {};
+        if (platform === 'google') {
+            updateData.googleRefreshToken = null;
+            updateData.googleAccessToken = null;
+            updateData.googleConnected = false;
+            updateData.googleEmail = null;
+        } else if (platform === 'zoom') {
+            updateData.zoomRefreshToken = null;
+            updateData.zoomAccessToken = null;
+            updateData.zoomConnected = false;
+            updateData.zoomEmail = null;
+        } else {
+            return res.status(400).json({ message: 'Invalid platform' });
+        }
+
+        await Employee.findByIdAndUpdate(userId, updateData);
+        res.json({ message: `${platform} disconnected successfully` });
+    } catch (err) {
+        console.error(`Error disconnecting ${platform}:`, err.message);
         res.status(500).json({ error: err.message });
     }
 };

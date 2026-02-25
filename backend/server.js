@@ -4,6 +4,7 @@ const cors = require("cors");
 const meetingRoutes = require("./src/routes/meetingroutes");
 const authRoutes = require("./src/routes/auth.route");
 const integrationRoutes = require("./src/routes/integrationRoutes");
+const aiRoutes = require("./src/routes/aiRoutes");
 const connectDB = require("./src/config/db");
 
 const startServer = async () => {
@@ -19,6 +20,7 @@ const startServer = async () => {
   app.use("/auth", authRoutes);
   app.use("/meetings", meetingRoutes);
   app.use("/api/integrations", integrationRoutes);
+  app.use("/api/ai", aiRoutes);
 
   const PORT = process.env.PORT || 5000;
 

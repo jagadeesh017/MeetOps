@@ -2,11 +2,13 @@ import { useCallback, useContext, useEffect, useState } from "react";
 import { AuthContext } from "../context/Authcontext";
 import CustomCalendar from "../components/CustomCalendar";
 import ScheduleMeeting from "../components/ScheduleMeeting";
+import AIScheduler from "../components/AIScheduler";
 import { getIntegrationStatus, connectGoogle, connectZoom, disconnectIntegration } from "../services/integrations";
 
 export default function Dashboard() {
   const { user, setUser } = useContext(AuthContext);
   const [showScheduleForm, setShowScheduleForm] = useState(false);
+  const [showAIScheduler, setShowAIScheduler] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [integrations, setIntegrations] = useState({
     google: { connected: false, email: null },
@@ -23,13 +25,17 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
-    if (user) fetchStatus();
+    if (user) {
+      // Data fetching in effect is intentional
+      fetchStatus();
+    }
   }, [user, fetchStatus]);
 
   // Handle OAuth Redirects
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("googleConnected") || params.get("zoomConnected")) {
+      // Data fetching in effect is intentional after OAuth callback
       fetchStatus();
       // Clean up URL
       window.history.replaceState({}, document.title, window.location.pathname);
@@ -40,7 +46,7 @@ export default function Dashboard() {
     try {
       const { url } = await connectGoogle();
       window.location.href = url;
-    } catch (err) {
+    } catch {
       alert("Failed to start Google connection");
     }
   };
@@ -49,7 +55,7 @@ export default function Dashboard() {
     try {
       const { url } = await connectZoom();
       window.location.href = url;
-    } catch (err) {
+    } catch {
       alert("Failed to start Zoom connection");
     }
   };
@@ -59,7 +65,7 @@ export default function Dashboard() {
     try {
       await disconnectIntegration(platform);
       fetchStatus();
-    } catch (err) {
+    } catch {
       alert(`Failed to disconnect ${platform}`);
     }
   };
@@ -93,87 +99,77 @@ export default function Dashboard() {
         </div>
       </header>
 
-      <main className="p-4 max-w-[98%] mx-auto">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-          <div>
-            <h2 className="text-2xl font-bold dark:text-gray-100">Calendar</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Manage your schedule and integrations</p>
-          </div>
+      <main className="p-6">
+        {/* Welcome Section */}
+        <div className="mb-8">
+          <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Schedule</h2>
+          <p className="text-gray-600 dark:text-gray-400">Manage your meetings and integrations</p>
+        </div>
 
-          <div className="flex items-center gap-3">
-            {/* Integrations Group */}
-            <div className="flex items-center gap-2 bg-white/80 dark:bg-[#292929]/80 backdrop-blur-md p-1 rounded-xl border border-gray-200/50 dark:border-[#3d3d3d]/50 shadow-sm">
-              {/* Google */}
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={integrations.google.connected ? undefined : handleConnectGoogle}
-                  title={integrations.google.connected ? `Connected: ${integrations.google.email}` : "Connect Google Calendar"}
-                  className={`px-3 py-2 rounded-lg transition-all duration-300 flex items-center gap-2.5 text-xs font-medium ${integrations.google.connected
-                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 shadow-[0_0_15px_rgba(16,185,129,0.1)] cursor-default"
-                    : "bg-transparent text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 border border-transparent"
-                    }`}
-                >
-                  <div className="flex-shrink-0 flex items-center justify-center w-5 h-5">
-                    <img src="https://www.gstatic.com/images/branding/product/1x/calendar_48dp.png" className="w-4 h-4 object-contain" alt="Google" />
-                  </div>
-                  <span className="truncate">{integrations.google.connected ? "Google Ready" : "Google"}</span>
-                </button>
-                {integrations.google.connected && (
-                  <button
-                    onClick={() => handleDisconnect('google')}
-                    className="p-1.5 rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"
-                    title="Disconnect Google"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                )}
-              </div>
-
-              <div className="w-px h-6 bg-gray-200 dark:bg-[#3d3d3d]" />
-
-              {/* Zoom */}
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={integrations.zoom.connected ? undefined : handleConnectZoom}
-                  title={integrations.zoom.connected ? `Connected: ${integrations.zoom.email}` : "Connect Zoom"}
-                  className={`px-3 py-2 rounded-lg transition-all duration-300 flex items-center gap-2.5 text-xs font-medium ${integrations.zoom.connected
-                    ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 shadow-[0_0_15px_rgba(59,130,246,0.1)] cursor-default"
-                    : "bg-transparent text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 border border-transparent"
-                    }`}
-                >
-                  <div className="flex-shrink-0 flex items-center justify-center w-5 h-5">
-                    <svg viewBox="0 0 24 24" className="w-5 h-5" fill="#2D8CFF">
-                      <path d="M17 9.875L21.375 7V17L17 14.125V17C17 17.65 16.45 18.2 15.8 18.2H3.2C2.55 18.2 2 17.65 2 17V7C2 6.35 2.55 5.8 3.2 5.8H15.8C16.45 5.8 17 6.35 17 7V9.875Z" />
-                    </svg>
-                  </div>
-                  <span>{integrations.zoom.connected ? "Zoom Ready" : "Zoom"}</span>
-                </button>
-                {integrations.zoom.connected && (
-                  <button
-                    onClick={() => handleDisconnect('zoom')}
-                    className="p-1.5 rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"
-                    title="Disconnect Zoom"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                )}
-              </div>
-            </div>
-
+        {/* Action Bar */}
+        <div className="flex flex-col lg:flex-row gap-4 mb-8">
+          {/* Primary Actions */}
+          <div className="flex gap-3">
             <button
               onClick={() => setShowScheduleForm(true)}
-              className="bg-blue-600 dark:bg-[#6264a7] text-white px-6 py-2.5 rounded-lg shadow-md hover:bg-blue-700 dark:hover:bg-[#7173b3] transition text-sm font-semibold flex items-center gap-2"
+              className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 px-4 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md"
             >
-              <span className="text-xl leading-none">+</span> New Meeting
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v14m7-7H5" />
+              </svg>
+              New Meeting
+            </button>
+
+            <button
+              onClick={() => setShowAIScheduler(true)}
+              className="inline-flex items-center gap-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-semibold py-2.5 px-4 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+              AI Assistant
+            </button>
+          </div>
+
+          {/* Integration Status */}
+          <div className="ml-auto flex gap-3">
+            <button
+              onClick={integrations.google.connected ? () => handleDisconnect('google') : handleConnectGoogle}
+              className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium text-sm transition-all duration-200 ${
+                integrations.google.connected
+                  ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/50'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+              }`}
+              title={integrations.google.connected ? `Connected: ${integrations.google.email}` : 'Connect Google Calendar'}
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+                <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+              </svg>
+              {integrations.google.connected ? 'Google ✓' : 'Google'}
+            </button>
+
+            <button
+              onClick={integrations.zoom.connected ? () => handleDisconnect('zoom') : handleConnectZoom}
+              className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium text-sm transition-all duration-200 ${
+                integrations.zoom.connected
+                  ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/50'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+              }`}
+              title={integrations.zoom.connected ? `Connected: ${integrations.zoom.email}` : 'Connect Zoom'}
+            >
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M17 9.875L21.375 7V17L17 14.125V17C17 17.65 16.45 18.2 15.8 18.2H3.2C2.55 18.2 2 17.65 2 17V7C2 6.35 2.55 5.8 3.2 5.8H15.8C16.45 5.8 17 6.35 17 7V9.875Z" />
+              </svg>
+              {integrations.zoom.connected ? 'Zoom ✓' : 'Zoom'}
             </button>
           </div>
         </div>
 
-        <div className="bg-white dark:bg-[#292929] rounded-lg shadow-sm p-4 border border-gray-200 dark:border-[#3d3d3d]" style={{ height: 'calc(100vh - 200px)' }}>
+        {/* Calendar Container */}
+        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden" style={{ height: 'calc(100vh - 280px)' }}>
           <CustomCalendar key={refreshKey} />
         </div>
       </main>
@@ -181,6 +177,13 @@ export default function Dashboard() {
       {showScheduleForm && (
         <ScheduleMeeting
           onClose={() => setShowScheduleForm(false)}
+          onMeetingCreated={handleMeetingCreated}
+        />
+      )}
+
+      {showAIScheduler && (
+        <AIScheduler 
+          onClose={() => setShowAIScheduler(false)}
           onMeetingCreated={handleMeetingCreated}
         />
       )}

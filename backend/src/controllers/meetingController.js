@@ -6,9 +6,7 @@ const Employee = require("../models/employee");
 
 const DEFAULT_TIMEZONE = "IST";
 
-/**
- * Helper to check for meeting conflicts for a user (as organizer or attendee)
- */
+
 async function checkConflict(userEmail, startTime, endTime, excludeMeetingId = null) {
   const query = {
     status: { $ne: "cancelled" },
@@ -31,7 +29,7 @@ async function createMeetingLink(platform, meetingData, user) {
     }
 
     try {
-      let result = await createZoomMeeting(meetingData, user.zoomAccessToken);
+      let result = await createZoomMeeting(meetingData, user.zoomAccessToken, user.zoomRefreshToken);
 
       // If unauthorized, try to refresh token and retry once
       if (!result.success && result.status === 401 && user.zoomRefreshToken) {
@@ -46,11 +44,11 @@ async function createMeetingLink(platform, meetingData, user) {
           }
           await user.save();
 
-          console.log("✅ Zoom token refreshed, retrying meeting creation...");
-          // Retry with new token
-          result = await createZoomMeeting(meetingData, user.zoomAccessToken);
+          console.log(" Zoom token refreshed, retrying meeting creation...");
+          
+          result = await createZoomMeeting(meetingData, user.zoomAccessToken, user.zoomRefreshToken);
         } catch (refreshErr) {
-          console.error("❌ Zoom token refresh failed:", refreshErr.message);
+          console.error("Zoom token refresh failed:", refreshErr.message);
           return { success: false, error: "Zoom token expired and refresh failed." };
         }
       }
@@ -71,7 +69,7 @@ async function createMeetingLink(platform, meetingData, user) {
       accessToken: user.googleAccessToken,
     });
 
-    // If Google refreshed the token internally, save it
+    
     if (result.success && result.newTokens) {
       console.log("💾 Saving refreshed Google tokens...");
       if (result.newTokens.access_token) {
@@ -155,7 +153,7 @@ exports.createMeeting = async (req, res) => {
       recurrencePattern,
       recurrenceEndDate,
       recurrenceCount,
-      ignoreBusy, // New flag to ignore busy attendees
+      ignoreBusy, // flag to ignore busy attendees
     } = req.body;
 
     const user = await Employee.findById(req.user.id);

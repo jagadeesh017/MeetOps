@@ -18,8 +18,7 @@ function getPlatformStyle(platform) {
         meet: { bg: '#34A853', border: '#1e7e34', text: '#ffffff' },
         google: { bg: '#34A853', border: '#1e7e34', text: '#ffffff' },
         teams: { bg: '#6264a7', border: '#4a4c8a', text: '#ffffff' },
-        webex: { bg: '#f59e0b', border: '#d97706', text: '#ffffff' },
-        other: { bg: '#6b7280', border: '#4b5563', text: '#ffffff' },
+
     };
     return colors[platform] || colors.other;
 }
@@ -148,7 +147,7 @@ export default function CustomCalendar() {
     const fetchMeetings = useCallback(async () => {
         if (!user?.email) return;
         try {
-            setLoading(false);
+            setLoading(true); // Fix: set loading to true before fetching
             const data = await getMeetings(user.email);
             setMeetings(data);
         } catch (err) {
@@ -330,7 +329,8 @@ export default function CustomCalendar() {
                                                     setSelectedMeeting(meeting);
                                                 }}
                                             >
-                                                <div className="font-medium truncate">
+                                                <div className="font-medium truncate flex items-center gap-1">
+                                                    {meeting.isRecurring && <span title="Recurring meeting">🔄</span>}
                                                     {meeting.title}
                                                 </div>
                                                 {pos.height > 30 && (
@@ -412,7 +412,8 @@ export default function CustomCalendar() {
                                             setSelectedMeeting(meeting);
                                         }}
                                     >
-                                        <div className="font-semibold truncate">
+                                        <div className="font-semibold truncate flex items-center gap-1">
+                                            {meeting.isRecurring && <span title="Recurring meeting">🔄</span>}
                                             {meeting.title}
                                         </div>
                                         <div className="text-xs opacity-75">
@@ -492,6 +493,7 @@ export default function CustomCalendar() {
                                                     setSelectedMeeting(meeting);
                                                 }}
                                             >
+                                                {meeting.isRecurring && <span className="mr-1" title="Recurring meeting">🔄</span>}
                                                 {new Date(meeting.startTime).toLocaleTimeString('en-US', {
                                                     hour: 'numeric',
                                                     minute: '2-digit'

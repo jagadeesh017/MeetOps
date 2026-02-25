@@ -5,6 +5,10 @@ async function createGoogleMeetMeeting(meetingData, userTokens) {
         const { title, startTime, endTime, organizerEmail, attendees, timezone, description } = meetingData;
         const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI } = process.env;
 
+        if (!userTokens.refreshToken) {
+            throw new Error("No Google refresh token provided");
+        }
+
         const oauth2Client = new google.auth.OAuth2(
             GOOGLE_CLIENT_ID,
             GOOGLE_CLIENT_SECRET,
@@ -16,20 +20,16 @@ async function createGoogleMeetMeeting(meetingData, userTokens) {
             access_token: userTokens.accessToken
         });
 
-        // Add listener to save refreshed tokens
-        oauth2Client.on('tokens', (tokens) => {
-            if (tokens.refresh_token) {
-                // If we get a new refresh token, we should update it in DB
-                // This will be handled in the meeting controller or via a callback
-                console.log('🔄 New Google refresh token received');
-            }
-            if (tokens.access_token) {
-                console.log('🔄 New Google access token received');
-            }
-        });
+        try {
+            const { credentials } = await oauth2Client.refreshAccessToken();
+            oauth2Client.setCredentials(credentials);
+        } catch (refreshError) {
+        }
 
         const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
-        const googleAttendees = (attendees || []).map(a => ({ email: a.email }));
+        const googleAttendees = (attendees || []).map(a => ({ 
+            email: typeof a === 'string' ? a : a.email 
+        }));
 
         if (organizerEmail) {
             googleAttendees.unshift({ email: organizerEmail, organizer: true });
@@ -40,11 +40,11 @@ async function createGoogleMeetMeeting(meetingData, userTokens) {
             description: description || '',
             start: {
                 dateTime: new Date(startTime).toISOString(),
-                timeZone: timezone || 'UTC',
+                timeZone: timezone || 'IST',
             },
             end: {
                 dateTime: new Date(endTime).toISOString(),
-                timeZone: timezone || 'UTC',
+                timeZone: timezone || 'IST',
             },
             attendees: googleAttendees,
             conferenceData: {
@@ -54,6 +54,7 @@ async function createGoogleMeetMeeting(meetingData, userTokens) {
                 },
             },
         };
+
 
         const response = await calendar.events.insert({
             calendarId: 'primary',
@@ -74,17 +75,24 @@ async function createGoogleMeetMeeting(meetingData, userTokens) {
         return {
             success: true,
             meetingUrl: meetLink,
+            hangoutLink: meetLink,
             eventId: createdEvent.id,
             platform: 'meet',
-            // Return potential new tokens if they were refreshed
-            newTokens: oauth2Client.credentials
         };
     } catch (error) {
         const errMsg = error.response?.data?.error?.message || error.message;
-        console.error('❌ Google Meet creation failed:', errMsg);
+        
+        if (error.message.includes('invalid_grant') || error.message.includes('401') || error.message.includes('unauthorized')) {
+            return {
+                success: false,
+                error: 'Invalid or expired Google token. Please reconnect your Google account.',
+                meetingUrl: null,
+            };
+        }
+
         return {
             success: false,
-            error: errMsg,
+            error: errMsg || 'Failed to create Google Meet',
             meetingUrl: null,
         };
     }

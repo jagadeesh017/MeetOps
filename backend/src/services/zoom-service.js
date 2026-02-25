@@ -18,7 +18,7 @@ async function refreshZoomToken(refreshToken) {
     return response.data; // { access_token, refresh_token, expires_in, ... }
 }
 
-async function createZoomMeeting(meetingData, accessToken) {
+async function createZoomMeeting(meetingData, accessToken, refreshToken) {
     try {
         const { title, startTime, endTime, timezone, description } = meetingData;
 
@@ -65,7 +65,6 @@ async function createZoomMeeting(meetingData, accessToken) {
         };
     } catch (error) {
         const errMsg = error.response?.data?.message || error.message;
-        console.error('❌ Zoom meeting creation failed:', errMsg);
         return {
             success: false,
             error: errMsg,

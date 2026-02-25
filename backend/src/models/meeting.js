@@ -48,7 +48,7 @@ const MeetingSchema = new mongoose.Schema({
 
   timezone: {
     type: String,
-    default: "UTC"
+    default: "IST"
   },
 
   description: {
@@ -98,18 +98,7 @@ const MeetingSchema = new mongoose.Schema({
     default: "scheduled"
   },
 
-  calcomBookingId: {
-    type: String,
-    default: null,
-    required: false
-  },
-
-  calcomBookingUid: {
-    type: String,
-    default: null,
-    required: false
-  },
-
+  
   createdAt: {
     type: Date,
     default: Date.now

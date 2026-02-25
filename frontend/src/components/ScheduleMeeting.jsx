@@ -9,6 +9,7 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
     const { user } = useContext(AuthContext);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
+    const [successMeeting, setSuccessMeeting] = useState(null);
     const [integrations, setIntegrations] = useState({
         google: { connected: false },
         zoom: { connected: false }
@@ -179,6 +180,7 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
     const handleSubmit = async (e, forceIgnoreBusy = false) => {
         e.preventDefault();
         setError(null);
+        setSuccessMeeting(null);
 
         const startDateTime = new Date(`${formData.startDate}T${formData.startTime}`);
         const endDateTime = new Date(`${formData.endDate}T${formData.endTime}`);
@@ -206,9 +208,12 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
 
         setLoading(true);
         try {
-            await createMeeting(meetingData);
-            onMeetingCreated();
-            onClose();
+            const createdMeeting = await createMeeting(meetingData);
+            setSuccessMeeting(createdMeeting);
+            setShowBusyWarning(false);
+            if (onMeetingCreated) {
+                onMeetingCreated(createdMeeting);
+            }
         } catch (err) {
             console.error('Error creating meeting:', err);
             
@@ -286,6 +291,55 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
                 {/* Form */}
                 <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto px-6 py-4">
                     <div className="space-y-4">
+
+                        {successMeeting && (
+                            <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded p-4 text-green-800 dark:text-green-300 text-sm">
+                                <p className="font-semibold mb-2">Meeting created successfully</p>
+                                <div className="space-y-2">
+                                    <div>
+                                        <span className="text-xs uppercase tracking-wide text-green-700 dark:text-green-400">Title</span>
+                                        <p className="font-medium">
+                                            {(successMeeting.meetings && successMeeting.meetings[0]?.title) || successMeeting.title}
+                                        </p>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                            <span className="text-xs uppercase tracking-wide text-green-700 dark:text-green-400">Platform</span>
+                                            <p className="font-medium capitalize">
+                                                {(successMeeting.meetings && successMeeting.meetings[0]?.platform) || successMeeting.platform}
+                                            </p>
+                                        </div>
+                                        <div>
+                                            <span className="text-xs uppercase tracking-wide text-green-700 dark:text-green-400">Attendees</span>
+                                            <p className="font-medium">
+                                                {(successMeeting.meetings && successMeeting.meetings[0]?.attendees?.length) || successMeeting.attendees?.length || 0}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <span className="text-xs uppercase tracking-wide text-green-700 dark:text-green-400">Scheduled time</span>
+                                        <p className="font-medium">
+                                            {new Date((successMeeting.meetings && successMeeting.meetings[0]?.startTime) || successMeeting.startTime).toLocaleString()}
+                                        </p>
+                                    </div>
+                                    {(successMeeting.joinUrl || (successMeeting.meetings && successMeeting.meetings[0]?.joinUrl)) && (
+                                        <a
+                                            href={(successMeeting.meetings && successMeeting.meetings[0]?.joinUrl) || successMeeting.joinUrl}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="inline-flex items-center gap-2 text-green-700 dark:text-green-300 font-semibold"
+                                        >
+                                            Join meeting link
+                                        </a>
+                                    )}
+                                    {successMeeting.meetings && (
+                                        <p className="text-xs text-green-700 dark:text-green-400">
+                                            Created {successMeeting.meetings.length} recurring meetings.
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
+                        )}
 
                         {error && (
                             <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded p-3 text-red-700 dark:text-red-400 text-sm">
@@ -594,15 +648,17 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
                         onClick={onClose}
                         className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-[#3d3d3d] rounded transition"
                     >
-                        Cancel
+                        {successMeeting ? 'Close' : 'Cancel'}
                     </button>
-                    <button
-                        onClick={handleSubmit}
-                        disabled={loading}
-                        className="px-4 py-2 text-sm font-medium bg-blue-600 dark:bg-[#6264a7] text-white rounded hover:bg-blue-700 dark:hover:bg-[#7173b3] transition disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        {loading ? 'Sending...' : 'Send'}
-                    </button>
+                    {!successMeeting && (
+                        <button
+                            onClick={handleSubmit}
+                            disabled={loading}
+                            className="px-4 py-2 text-sm font-medium bg-blue-600 dark:bg-[#6264a7] text-white rounded hover:bg-blue-700 dark:hover:bg-[#7173b3] transition disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {loading ? 'Sending...' : 'Send'}
+                        </button>
+                    )}
                 </div>
             </div>
         </div>

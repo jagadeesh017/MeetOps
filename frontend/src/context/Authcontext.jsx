@@ -5,32 +5,43 @@ export const AuthContext = createContext();
 
 export default function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
+  const [token, setToken] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token =
-    localStorage.getItem("token") ||
-    sessionStorage.getItem("token");
+    const checkAuth = async () => {
+      try {
+        const savedToken =
+          localStorage.getItem("token") ||
+          sessionStorage.getItem("token");
 
+        setToken(savedToken);
 
-    if (!token) {
-      setLoading(false);
-      return;
-    }
+        if (!savedToken) {
+          setLoading(false);
+          return;
+        }
 
-    axios.get("http://localhost:5000/auth/me", {
-      headers: { Authorization: `Bearer ${token}` }
-    })
-    .then(res => setUser(res.data))
-    .catch(() => {
-      localStorage.removeItem("token");
-      setUser(null);
-    })
-    .finally(() => setLoading(false));
+        const res = await axios.get("http://localhost:5000/auth/me", {
+          headers: { Authorization: `Bearer ${savedToken}` }
+        });
+        setUser(res.data);
+      } catch (err) {
+        console.error("Auth check failed:", err.message);
+        localStorage.removeItem("token");
+        sessionStorage.removeItem("token");
+        setToken(null);
+        setUser(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    checkAuth();
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, setUser, loading }}>
+    <AuthContext.Provider value={{ user, setUser, loading, token, setToken }}>
       {children}
     </AuthContext.Provider>
   );

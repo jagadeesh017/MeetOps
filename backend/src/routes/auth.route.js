@@ -20,7 +20,7 @@ router.get("/search", auth, async (req, res) => {
       return res.json([]);
     }
 
-    // Search by name or email
+    
     const users = await Employee.find({
       $or: [
         { name: { $regex: q, $options: 'i' } },
