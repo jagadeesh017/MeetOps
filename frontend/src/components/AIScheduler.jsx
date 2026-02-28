@@ -52,6 +52,7 @@ export default function AIScheduler({ onClose, onMeetingCreated }) {
     setLoading(true);
 
     try {
+      const isDeleteIntent = /(delete|cancel|remove|drop|discard)/i.test(userMessage);
       // Build conversation history for context
       const conversationHistory = messages
         .map((msg) => `${msg.type === "user" ? "User" : "Assistant"}: ${msg.content}`)
@@ -59,7 +60,7 @@ export default function AIScheduler({ onClose, onMeetingCreated }) {
       
       const fullPrompt = conversationHistory ? `${conversationHistory}\nUser: ${userMessage}` : userMessage;
 
-      const response = await fetch("http://localhost:5000/api/ai/schedule-meeting", {
+      const response = await fetch(`http://localhost:5000/api/ai/${isDeleteIntent ? "delete-meeting" : "schedule-meeting"}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -74,15 +75,27 @@ export default function AIScheduler({ onClose, onMeetingCreated }) {
       const data = await response.json();
 
       if (!response.ok) {
-        let errorMessage = data.message || "Failed to schedule meeting";
+        const msg = data.message || data.error || (isDeleteIntent ? "Failed to delete" : "Failed to schedule");
+        setMessages((prev) => [...prev, { type: "bot", content: msg.length < 100 ? msg : (isDeleteIntent ? "Failed to delete" : "Failed to schedule"), timestamp: new Date() }]);
+        setLoading(false);
+        return;
+      }
+
+      if (data.deletedMeeting) {
+        const deleted = data.deletedMeeting;
         setMessages((prev) => [
           ...prev,
           {
             type: "bot",
-            content: errorMessage,
+            content: `Done. I've deleted "${deleted.title}" scheduled for ${new Date(deleted.startTime).toLocaleString()}.`,
             timestamp: new Date(),
           },
         ]);
+
+        if (onMeetingCreated) {
+          onMeetingCreated(deleted);
+        }
+
         setLoading(false);
         return;
       }
@@ -127,19 +140,19 @@ export default function AIScheduler({ onClose, onMeetingCreated }) {
     <div className="fixed inset-0 bg-black/50 backdrop-blur-md flex items-center justify-center z-50 p-4">
       <div className="w-full max-w-2xl h-[80vh] max-h-screen bg-white dark:bg-[#1a1a1a] rounded-2xl shadow-2xl overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="bg-linear-to-r from-blue-600 via-blue-700 to-indigo-700 dark:from-blue-800 dark:via-blue-900 dark:to-indigo-900 px-6 py-4 flex justify-between items-center shrink-0 border-b border-blue-500/20">
+        <div className="bg-white dark:bg-[#1f1f1f] px-6 py-4 flex justify-between items-center shrink-0 border-b border-gray-200 dark:border-[#3a3a3a]">
           <div>
-            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
               <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
                 <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z" />
               </svg>
               Meeting Assistant
             </h2>
-            <p className="text-blue-100 text-xs mt-1">Powered by AI</p>
+            <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">Powered by AI</p>
           </div>
           <button
             onClick={onClose}
-            className="text-white/70 hover:text-white transition-colors p-2 hover:bg-white/10 rounded-lg"
+            className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors p-2 hover:bg-gray-100 dark:hover:bg-[#2a2a2a] rounded-lg"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

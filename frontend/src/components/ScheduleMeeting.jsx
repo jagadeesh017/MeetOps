@@ -14,6 +14,7 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
         google: { connected: false },
         zoom: { connected: false }
     });
+    const [integrationsLoaded, setIntegrationsLoaded] = useState(false);
     const [integrationWarning, setIntegrationWarning] = useState(null);
     const [busyAttendees, setBusyAttendees] = useState([]);
     const [showBusyWarning, setShowBusyWarning] = useState(false);
@@ -75,12 +76,18 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
                 setIntegrations(status);
             } catch {
                 console.error('Failed to fetch integration status');
+            } finally {
+                setIntegrationsLoaded(true);
             }
         };
         fetchIntegrations();
     }, []);
 
     useEffect(() => {
+        if (!integrationsLoaded) {
+            setIntegrationWarning(null);
+            return;
+        }
         if (formData.platform === 'meet' || formData.platform === 'google') {
             if (!integrations.google.connected) {
                 setIntegrationWarning('Google Calendar is not connected. Connect it in the dashboard to use Google Meet.');
@@ -215,15 +222,13 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
                 onMeetingCreated(createdMeeting);
             }
         } catch (err) {
-            console.error('Error creating meeting:', err);
+            const msg = err.response?.data?.message || err.response?.data?.error || 'Failed to create meeting';
+            setError(msg.length < 100 && !msg.includes('videoResult') ? msg : 'Failed to create meeting');
             
-            // Check if it's a busy attendees error
-            if (err.response?.status === 409 && err.response?.data?.canProceed && err.response?.data?.busyAttendees) {
+            if (err.response?.status === 409 && err.response?.data?.busyAttendees) {
                 setBusyAttendees(err.response.data.busyAttendees);
                 setShowBusyWarning(true);
-            } else {
-                const errorMsg = err.response?.data?.message || err.response?.data?.error;
-                setError(errorMsg || 'Failed to create meeting');
+                setError(null);
             }
         } finally {
             setLoading(false);
@@ -259,8 +264,8 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
                 setShowBusyWarning(true);
             }
         } catch (err) {
-            console.error('Error checking availability:', err);
-            setError('Failed to check availability. Please try again.');
+            const msg = err.response?.data?.message || err.response?.data?.error || 'Failed to check availability';
+            setError(msg.length < 100 && !msg.includes('videoResult') ? msg : 'Failed to check availability');
         } finally {
             setCheckingAvailability(false);
         }
@@ -368,9 +373,7 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
                                                     <strong>{attendee.name}</strong> ({attendee.email})
                                                     <br />
                                                     <span className="text-yellow-600 dark:text-yellow-400">
-                                                        Busy with: "{attendee.conflict.title}" 
-                                                        ({new Date(attendee.conflict.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - 
-                                                        {new Date(attendee.conflict.endTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
+                                                        Busy ({attendee.conflictStartTime} - {attendee.conflictEndTime})
                                                     </span>
                                                 </li>
                                             ))}
@@ -379,13 +382,13 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
                                             <button
                                                 onClick={handleProceedAnyway}
                                                 disabled={loading}
-                                                className="px-3 py-1.5 text-xs font-medium bg-yellow-600 dark:bg-yellow-700 text-white rounded hover:bg-yellow-700 dark:hover:bg-yellow-600 transition disabled:opacity-50"
+                                                className="px-4 py-2 text-xs font-semibold rounded-lg bg-yellow-500 text-white shadow-sm hover:bg-yellow-600 focus:outline-none focus:ring-2 focus:ring-yellow-400/60 transition disabled:opacity-50"
                                             >
                                                 Proceed Anyway
                                             </button>
                                             <button
                                                 onClick={() => setShowBusyWarning(false)}
-                                                className="px-3 py-1.5 text-xs font-medium bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-300 dark:hover:bg-gray-600 transition"
+                                                className="px-4 py-2 text-xs font-semibold rounded-lg bg-white dark:bg-[#3d3d3d] border border-gray-200 dark:border-[#4a4a4a] text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-[#444] shadow-sm transition"
                                             >
                                                 Cancel
                                             </button>
@@ -533,7 +536,7 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
                                         type="button"
                                         onClick={handleCheckAvailability}
                                         disabled={checkingAvailability}
-                                        className="w-full mt-2 px-3 py-1.5 text-xs font-medium text-blue-600 dark:text-[#6264a7] border border-blue-300 dark:border-[#6264a7] rounded hover:bg-blue-50 dark:hover:bg-[#3d3d3d] transition disabled:opacity-50"
+                                        className="w-full mt-2 px-3 py-2 text-xs font-semibold rounded-lg border border-blue-200 dark:border-[#6264a7] text-blue-600 dark:text-[#b7b9ff] bg-blue-50 dark:bg-[#2f2f3d] hover:bg-blue-100 dark:hover:bg-[#34344a] shadow-sm transition disabled:opacity-50"
                                     >
                                         {checkingAvailability ? '⏳ Checking...' : '🔍 Check Availability'}
                                     </button>
@@ -646,7 +649,7 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
                     <button
                         type="button"
                         onClick={onClose}
-                        className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-[#3d3d3d] rounded transition"
+                        className="px-4 py-2 text-sm font-semibold rounded-lg border border-gray-200 dark:border-[#4a4a4a] text-gray-700 dark:text-gray-200 bg-white dark:bg-[#2f2f2f] hover:bg-gray-100 dark:hover:bg-[#3a3a3a] shadow-sm transition"
                     >
                         {successMeeting ? 'Close' : 'Cancel'}
                     </button>
@@ -654,7 +657,7 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
                         <button
                             onClick={handleSubmit}
                             disabled={loading}
-                            className="px-4 py-2 text-sm font-medium bg-blue-600 dark:bg-[#6264a7] text-white rounded hover:bg-blue-700 dark:hover:bg-[#7173b3] transition disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="px-4 py-2 text-sm font-semibold rounded-lg bg-blue-600 dark:bg-[#6264a7] text-white shadow-md hover:bg-blue-700 dark:hover:bg-[#6b6db2] transition disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             {loading ? 'Sending...' : 'Send'}
                         </button>

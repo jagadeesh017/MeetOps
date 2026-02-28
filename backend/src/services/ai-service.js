@@ -1,160 +1,116 @@
 const Groq = require("groq-sdk");
 const chrono = require("chrono-node");
 
-const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY,
-});
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
+// Parse meeting prompt with AI
 const parseMeetingPrompt = async (prompt, contextAware = false) => {
   try {
-    const systemMessage = `You are an intelligent meeting scheduling assistant. You MUST parse user requests into structured meeting data. You are fully responsible for handling all edge cases, context awareness, and validation.
+    const systemMessage = `You are an intelligent meeting scheduling assistant. Parse natural language requests into structured meeting data.
 
-YOUR RESPONSIBILITIES:
-1. DETECT REQUEST TYPE: 
-   - Meeting request = isMeetingRequest: true, extract all details
-   - Non-meeting (recipe, weather, jokes, homework, coding, sports, news) = isMeetingRequest: false, leave other fields empty
-   - Single-word context clues ("zoom", "tomorrow", "okay") = stay in context, treat as meeting continuation
+YOUR TASK:
+Extract meeting details from user requests like "schedule a meet with testuser in zoom at 5pm today" or "call with frontend team now"
 
-2. EXTRACT FROM CONTEXT:
-   - ALWAYS use full conversation history to infer missing details
-   - If user says "okay" or "done" after describing a meeting = it's valid meeting context
-   - Build on previous messages - don't lose attendees, times, or platforms from earlier
+EXTRACT THESE FIELDS:
+1. ATTENDEES: Names, emails, OR GROUP/TEAM names mentioned - Extract EXACTLY as stated
+   - Individual: testuser, john, user5, john@email.com
+   - Groups: frontend team, hr team, team a, team b, sales team, it team
+2. PLATFORM: "zoom" if zoom mentioned, "google" if google/meet mentioned, null otherwise
+3. TIME: ANY time reference including vague ones - Extract as timePreference:
+   - Specific: "5pm today", "tomorrow at 2pm", "next monday"
+   - Flexible: "now", "asap", "next available slot", "next avbl slot", "soonest", "earliest"
+   - Relative: "in 1 hour", "in 30 minutes", "later today"
+4. TITLE: Infer from context or use "Team Meeting" as default
+5. DURATION: Default to 60 minutes unless specified
 
-3. ATTENDEES - BE SMART:
-   - Extract ALL attendees mentioned: names, emails, partial names, nicknames
-   - Accept variations: "user5", "user 5", "user five", "john", "John Doe", "j.doe@mail.com"
-   - Return EXACTLY as user said it (no normalization needed, backend will fuzzy-match)
-   - If no attendees: set attendees: []
-
-4. PLATFORM - ALWAYS INFER:
-   - Explicit: "zoom" → "zoom", "meet"/"google" → "google"
-   - From context: Previous messages mentioned zoom? Use "zoom". Google? Use "google"
-   - Default if still missing: Ask user → set platform: null AND add to description: "NEEDS_PLATFORM_ASK"
-   - Only valid: "zoom", "google", or null
-
-5. TIME - BE FLEXIBLE:
-   - Parse: "tomorrow", "next monday", "28th", "2pm", "3 PM tomorrow", "1 hour from now", "next free"
-   - Return timePreference as exact user text
-   - If vague ("next free"): still return it, backend will find slot
-   - If no time: set timePreference: null
-
-6. TITLE - INFER FROM CONTEXT:
-   - From user: "meeting about X" → title: "X Discussion"
-   - From attendees: "call with john" → title: "Call with John"
-   - Default: "Team Meeting"
-
-7. VALIDATION & SMART RESPONSES:
-   - If meeting request BUT missing attendees: confidence: "low", add to description: "NEEDS_ATTENDEES"
-   - If meeting request BUT missing platform: confidence: "low", add to description: "NEEDS_PLATFORM_ASK"
-   - If meeting request BUT missing time: confidence: "low", add to description: "NEEDS_TIME", suggest "1 hour from now"
-   - If all required fields (title, attendees, time, platform): confidence: "high"
-   - NEVER fail - always return valid JSON, even if fields are incomplete
-
-8. EDGE CASES:
-   - "schedule meet" (no details) → attendees: [], confidence: "low", description: "NEEDS_ATTENDEES NEEDS_TIME NEEDS_PLATFORM_ASK"
-   - "with user5" (after prior context) → use previous attendees + add user5
-   - "in zoom" (single word) → set platform: "zoom", use previous attendees/time
-   - "tomorrow 2pm zoom" (no attendees) → confidence: "low", still extract time & platform
-
-RESPONSE FORMAT - ALWAYS RETURN VALID JSON:
+RESPONSE FORMAT (Always valid JSON):
 {
-  "title": "meeting title or null",
-  "attendees": ["name1", "email@domain.com"],
+  "title": "Meeting with testuser",
+  "attendees": ["testuser"],
   "duration": 60,
-  "description": "brief description or special tags like NEEDS_ATTENDEES NEEDS_PLATFORM_ASK NEEDS_TIME",
-  "timePreference": "time text or null",
-  "platform": "zoom" or "google" or null,
-  "confidence": "high/medium/low",
-  "isMeetingRequest": true or false
+  "description": "",
+  "timePreference": "5pm today",
+  "platform": "zoom",
+  "confidence": "high",
+  "isMeetingRequest": true
 }
 
-CRITICAL EXAMPLES:
-1. "schedule with user5" (no time/platform) → {title: "Team Meeting", attendees: ["user5"], timePreference: null, platform: null, confidence: "low", description: "NEEDS_TIME NEEDS_PLATFORM_ASK"}
-2. "user5 tomorrow zoom" (from prior: "catch up call") → {title: "Catch Up Call", attendees: ["user5"], timePreference: "tomorrow", platform: "zoom", confidence: "high"}
-3. "recipe for tea" → {isMeetingRequest: false, confidence: "high"}
-4. "in google meet?" (prior: "with john 2pm") → {title: "Team Meeting", attendees: ["john"], timePreference: "2pm", platform: "google", confidence: "high"}
+CRITICAL RULES:
+- If you see "schedule", "meet", "meeting", "call" → isMeetingRequest: true
+- If you see "zoom" → platform: "zoom"
+- If you see "google" or "meet" → platform: "google"
+- Extract attendees EXACTLY as written (testuser, user5, john, frontend team, hr team)
+- Recognize GROUP names: "frontend team", "hr team", "team a", "team b", "sales team", "it team"
+- Extract ANY time phrase (now, asap, next slot, 5pm, tomorrow) → timePreference
+- If "now", "asap", "next available", "next slot" → timePreference: "next available slot"
+- If NO time mentioned at all → description: "NEEDS_TIME"
+- If missing attendees → description: "NEEDS_ATTENDEES"
+- If missing platform → description: "NEEDS_PLATFORM_ASK"
+- ALWAYS return valid JSON, no markdown, no explanations
 
-RULES:
-- ALWAYS return valid JSON
-- NEVER set isMeetingRequest: false for context clues
-- NEVER leave out fields - use null if missing
-- ALWAYS consider conversation history
-- Duration defaults to 60 if not specified
-- Return exactly what user said for attendees (fuzzy matching is backend's job)
-- Provide confidence level based on completeness
+EXAMPLES:
+"schedule a meet with testuser in zoom at 5pm today" →
+{"title":"Meeting with testuser","attendees":["testuser"],"duration":60,"description":"","timePreference":"5pm today","platform":"zoom","confidence":"high","isMeetingRequest":true}
 
-Return ONLY valid JSON, no markdown, no explanations.`;
+"call with john in zoom on next available slot" →
+{"title":"Call with john","attendees":["john"],"duration":60,"description":"","timePreference":"next available slot","platform":"zoom","confidence":"high","isMeetingRequest":true}
+
+"meeting with user5 now on google meet" →
+{"title":"Meeting with user5","attendees":["user5"],"duration":60,"description":"","timePreference":"now","platform":"google","confidence":"high","isMeetingRequest":true}
+schedule meet with frontend team in zoom at 3pm" →
+{"title":"Frontend Team Meeting","attendees":["frontend team"],"duration":60,"description":"","timePreference":"3pm","platform":"zoom","confidence":"high","isMeetingRequest":true}
+
+"call with hr team now" →
+{"title":"HR Team Call","attendees":["hr team"],"duration":60,"description":"","timePreference":"now","platform":null,"confidence":"high","isMeetingRequest":true}
+
+"
+"call with john" →
+{"title":"Call with john","attendees":["john"],"duration":60,"description":"NEEDS_TIME NEEDS_PLATFORM_ASK","timePreference":null,"platform":null,"confidence":"low","isMeetingRequest":true}
+
+Return ONLY valid JSON.`;
 
     const response = await groq.chat.completions.create({
       model: "llama-3.3-70b-versatile",
-      messages: [
-        {
-          role: "system",
-          content: systemMessage,
-        },
-        {
-          role: "user",
-          content: prompt,
-        },
-      ],
+      messages: [{ role: "system", content: systemMessage }, { role: "user", content: prompt }],
       temperature: 0.3,
       max_tokens: 1024,
     });
 
-
-    const content = response.choices[0].message.content;
-    
-    // Remove markdown code blocks and clean up the response
-    let jsonString = content.trim();
-    
-    // Remove markdown code blocks (```json ... ```)
-    jsonString = jsonString.replace(/^```json\s*\n?/, "").replace(/\n?```\s*$/, "");
-    jsonString = jsonString.replace(/^```\s*\n?/, "").replace(/\n?```\s*$/, "");
-    
-    // Extract JSON object if wrapped in text
+    let jsonString = response.choices[0].message.content.trim();
+    jsonString = jsonString.replace(/^```json\s*\n?/, "").replace(/\n?```\s*$/, "")
+                             .replace(/^```\s*\n?/, "").replace(/\n?```\s*$/, "");
     const jsonMatch = jsonString.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      jsonString = jsonMatch[0];
-    }
+    if (jsonMatch) jsonString = jsonMatch[0];
     
     const meetingDetails = JSON.parse(jsonString);
 
     if (meetingDetails.platform) {
-      meetingDetails.platform = meetingDetails.platform.toLowerCase().trim();
-      if (meetingDetails.platform.includes("google") || meetingDetails.platform.includes("meet")) {
-        meetingDetails.platform = "google";
-      } else if (meetingDetails.platform.includes("zoom")) {
-        meetingDetails.platform = "zoom";
-      } else {
-        meetingDetails.platform = null;
-      }
+      const p = meetingDetails.platform.toLowerCase().trim();
+      meetingDetails.platform = (p.includes("google") || p.includes("meet")) ? "google" : p.includes("zoom") ? "zoom" : null;
     }
 
     if (meetingDetails.timePreference) {
-      const parsedDate = chrono.parseDate(meetingDetails.timePreference);
+      const timeLower = meetingDetails.timePreference.toLowerCase();
       
-      if (parsedDate) {
-        const now = new Date();
-        const minTime = new Date(now.getTime() + 30 * 60000);
-        
-        if (parsedDate < minTime) {
-          if (meetingDetails.timePreference.toLowerCase().includes('next') || 
-              meetingDetails.timePreference.toLowerCase().includes('soon')) {
-            const tomorrow = new Date(minTime);
-            tomorrow.setDate(tomorrow.getDate() + 1);
-            meetingDetails.suggestedTime = tomorrow;
-          } else {
-            meetingDetails.suggestedTime = minTime;
-          }
-        } else {
-          meetingDetails.suggestedTime = parsedDate;
-        }
-      } else {
+      // Handle flexible time phrases
+      if (timeLower.includes('now') || timeLower.includes('asap') || 
+          timeLower.includes('next available') || timeLower.includes('next slot') ||
+          timeLower.includes('soonest') || timeLower.includes('earliest') ||
+          timeLower.includes('avbl')) {
+        // Schedule 1 hour from now for flexible requests
         meetingDetails.suggestedTime = new Date(Date.now() + 60 * 60000);
+      } else {
+        // Parse specific date/time
+        let parsedDate = chrono.parseDate(meetingDetails.timePreference);
+        if (parsedDate) {
+          const minTime = new Date(Date.now() + 30 * 60000);
+          meetingDetails.suggestedTime = parsedDate < minTime ? (meetingDetails.timePreference.toLowerCase().includes('next') || meetingDetails.timePreference.toLowerCase().includes('soon') ? new Date(minTime.getTime() + 24 * 60 * 60000) : minTime) : parsedDate;
+        } else {
+          meetingDetails.suggestedTime = new Date(Date.now() + 60 * 60000);
+        }
       }
-    } else {
-      meetingDetails.suggestedTime = new Date(Date.now() + 60 * 60000);
     }
+    // Don't auto-set suggestedTime if no timePreference - let controller ask user for time
 
     return meetingDetails;
   } catch (error) {
@@ -162,16 +118,9 @@ Return ONLY valid JSON, no markdown, no explanations.`;
   }
 };
 
+// Validate meeting data structure
 const validateMeetingData = (meetingData) => {
-  return (
-    meetingData.title &&
-    Array.isArray(meetingData.attendees) &&
-    meetingData.attendees.length > 0 &&
-    meetingData.duration > 0
-  );
+  return meetingData.title && Array.isArray(meetingData.attendees) && meetingData.attendees.length > 0 && meetingData.duration > 0;
 };
 
-module.exports = {
-  parseMeetingPrompt,
-  validateMeetingData,
-};
+module.exports = { parseMeetingPrompt, validateMeetingData };

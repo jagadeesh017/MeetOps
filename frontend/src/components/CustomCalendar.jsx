@@ -1,6 +1,6 @@
 import { useState, useCallback, useContext, useEffect } from 'react';
 import { AuthContext } from '../context/Authcontext';
-import { getMeetings } from '../services/api';
+import { deleteMeeting, getMeetings } from '../services/api';
 import { getTimezoneList, getLocalTimezone } from '../utils/calendarUtils';
 import ScheduleMeeting from './ScheduleMeeting';
 
@@ -23,7 +23,7 @@ function getPlatformStyle(platform) {
     return colors[platform] || colors.other;
 }
 
-function EventDetailModal({ meeting, onClose }) {
+function EventDetailModal({ meeting, onClose, onDelete, canDelete, deleting }) {
     if (!meeting) return null;
     const platform = meeting.platform || 'other';
     const cfg = PLATFORM_CONFIG[platform] || PLATFORM_CONFIG.other;
@@ -107,7 +107,7 @@ function EventDetailModal({ meeting, onClose }) {
                                 href={meeting.joinUrl}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-white font-semibold text-sm transition-all hover:opacity-90 active:scale-95"
+                                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-white font-semibold text-sm transition hover:brightness-95 focus:outline-none focus:ring-2 focus:ring-offset-2"
                                 style={{ background: cfg.accent }}
                             >
                                 Join {cfg.label}
@@ -117,9 +117,18 @@ function EventDetailModal({ meeting, onClose }) {
                                 No join link available
                             </div>
                         )}
+                        {canDelete && (
+                            <button
+                                onClick={() => onDelete(meeting)}
+                                disabled={deleting}
+                                className="px-4 py-2.5 rounded-lg border border-red-200 dark:border-red-900/40 text-red-600 dark:text-red-300 text-sm font-semibold bg-red-50/70 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 transition disabled:opacity-60 disabled:cursor-not-allowed"
+                            >
+                                {deleting ? "Deleting..." : "Delete"}
+                            </button>
+                        )}
                         <button
                             onClick={onClose}
-                            className="px-4 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 text-sm font-medium hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+                            className="px-4 py-2.5 rounded-lg border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 text-sm font-medium bg-white/70 dark:bg-[#2f2f2f] hover:bg-gray-50 dark:hover:bg-gray-700 transition"
                         >
                             Close
                         </button>
@@ -140,6 +149,7 @@ export default function CustomCalendar() {
     const [showScheduleForm, setShowScheduleForm] = useState(false);
     const [selectedSlot, setSelectedSlot] = useState(null);
     const [selectedMeeting, setSelectedMeeting] = useState(null);
+    const [deleting, setDeleting] = useState(false);
 
     const timezones = getTimezoneList();
     const hours = Array.from({ length: 24 }, (_, i) => i);
@@ -228,6 +238,21 @@ export default function CustomCalendar() {
         slotDate.setHours(hour, 0, 0, 0);
         setSelectedSlot(slotDate);
         setShowScheduleForm(true);
+    };
+
+    const handleDeleteMeeting = async (meeting) => {
+        if (!meeting?._id) return;
+        if (!window.confirm("Delete this meeting?")) return;
+        setDeleting(true);
+        try {
+            await deleteMeeting(meeting._id);
+            setSelectedMeeting(null);
+            await fetchMeetings();
+        } catch (err) {
+            alert('Failed to delete meeting: ' + (err.response?.data?.message || err.message || 'Unknown error'));
+        } finally {
+            setDeleting(false);
+        }
     };
 
     const getMeetingsForDay = (day) => {
@@ -620,6 +645,9 @@ export default function CustomCalendar() {
                 <EventDetailModal
                     meeting={selectedMeeting}
                     onClose={() => setSelectedMeeting(null)}
+                    onDelete={handleDeleteMeeting}
+                    canDelete={selectedMeeting.organizerEmail === user?.email}
+                    deleting={deleting}
                 />
             )}
         </div>

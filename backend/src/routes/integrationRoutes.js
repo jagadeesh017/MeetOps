@@ -3,12 +3,10 @@ const router = express.Router();
 const integrationController = require('../controllers/integrationController');
 const auth = require('../middlewares/authmiddleware');
 
-// Google
 router.get('/google/connect', auth, integrationController.getGoogleAuthUrl);
 router.get('/google/callback', integrationController.googleCallback);
 
-// Zoom
-router.get('/google/status', auth, integrationController.getIntegrationStatus); // Using one status route for both
+router.get('/google/status', auth, integrationController.getIntegrationStatus); 
 router.get('/zoom/connect', auth, integrationController.getZoomAuthUrl);
 router.get('/zoom/callback', integrationController.zoomCallback);
 

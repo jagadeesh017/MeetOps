@@ -7,12 +7,12 @@ export const getIntegrationStatus = async () => {
 
 export const connectGoogle = async () => {
     const response = await api.get('/api/integrations/google/connect');
-    return response.data; // { url }
+    return response.data; 
 };
 
 export const connectZoom = async () => {
     const response = await api.get('/api/integrations/zoom/connect');
-    return response.data; // { url }
+    return response.data; 
 };
 
 export const disconnectIntegration = async (platform) => {

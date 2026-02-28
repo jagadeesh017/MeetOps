@@ -17,13 +17,12 @@ const EmployeeSchema = new mongoose.Schema({
     type: String,
     required: true
   },
-  // Google Integration
+
   googleRefreshToken: { type: String, default: null },
   googleAccessToken: { type: String, default: null },
   googleConnected: { type: Boolean, default: false },
   googleEmail: { type: String, default: null },
 
-  // Zoom Integration
   zoomRefreshToken: { type: String, default: null },
   zoomAccessToken: { type: String, default: null },
   zoomConnected: { type: Boolean, default: false },

@@ -1,7 +1,11 @@
 const aiService = require("../services/ai-service");
 const schedulingService = require("../services/ai-scheduling-service");
 const Employee = require("../models/employee");
+const Meeting = require("../models/meeting");
+const { deleteZoomMeeting } = require("../services/zoom-service");
+const { deleteGoogleMeetEvent } = require("../services/google-meet-service");
 
+// Infer platform from text
 const inferPlatformFromPrompt = (text) => {
   const lower = (text || "").toLowerCase();
   if (/(google\s*meet|google|meet)\b/.test(lower)) return "google";
@@ -9,208 +13,166 @@ const inferPlatformFromPrompt = (text) => {
   return null;
 };
 
+// Schedule meeting from natural language
 const scheduleFromPrompt = async (req, res) => {
   try {
     const { prompt, platform: userPlatform, contextAware } = req.body;
-    const userId = req.user.id;
-
-    const user = await Employee.findById(userId);
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-
-    if (!prompt || !prompt.trim()) {
-      return res.status(400).json({
-        success: false,
-        message: "Please provide a meeting request",
-      });
-    }
+    const user = await Employee.findById(req.user.id);
+    if (!user) return res.status(404).json({ success: false, message: "User not found" });
+    if (!prompt?.trim()) return res.status(400).json({ success: false, message: "Please provide a meeting request" });
 
     let meetingData;
     try {
       meetingData = await aiService.parseMeetingPrompt(prompt, contextAware || false);
     } catch (parseError) {
-      if (parseError.message && parseError.message.includes("specifically designed to help schedule meetings")) {
-        return res.status(400).json({
-          success: false,
-          message: parseError.message,
-        });
+      if (parseError.message?.includes("specifically designed to help schedule meetings")) {
+        return res.status(400).json({ success: false, message: parseError.message });
       }
       throw parseError;
     }
 
-    if (!meetingData.platform) {
-      const inferredPlatform = inferPlatformFromPrompt(prompt);
-      if (inferredPlatform) {
-        meetingData.platform = inferredPlatform;
-      }
-    }
-
+    if (!meetingData.platform) meetingData.platform = inferPlatformFromPrompt(prompt);
     if (meetingData.isMeetingRequest === false) {
-      return res.status(400).json({
-        success: false,
-        message: "I'm specifically designed to help schedule meetings. I can't assist with that. Would you like to schedule a meeting instead?",
-      });
+      return res.status(400).json({ success: false, message: "I'm specifically designed to help schedule meetings. Would you like to schedule a meeting instead?" });
     }
 
     const description = meetingData.description || "";
     if (description.includes("NEEDS_PLATFORM_ASK")) {
-      return res.status(400).json({
-        success: false,
-        message: "Which platform would you like to use? Zoom or Google Meet?",
-        receivedData: meetingData,
-      });
+      return res.status(400).json({ success: false, message: "Which platform would you like to use? Zoom or Google Meet?", receivedData: meetingData });
     }
-
     if (description.includes("NEEDS_ATTENDEES")) {
-      return res.status(400).json({
-        success: false,
-        message: "Who should I invite to this meeting? Please provide attendee names or emails.",
-        receivedData: meetingData,
-      });
+      return res.status(400).json({ success: false, message: "Who should I invite to this meeting?", receivedData: meetingData });
     }
-
     if (description.includes("NEEDS_TIME")) {
-      return res.status(400).json({
-        success: false,
-        message: "When would you like to schedule this meeting? (e.g., tomorrow at 2pm, next Monday, in 1 hour)",
-        receivedData: meetingData,
-      });
+      return res.status(400).json({ success: false, message: "When would you like to schedule this meeting?", receivedData: meetingData });
     }
 
     if (!meetingData.title || !meetingData.attendees?.length || !meetingData.platform || !meetingData.timePreference) {
-      return res.status(400).json({
-        success: false,
-        message: "Please provide: attendee name/email, date/time, and platform (Zoom/Google Meet).",
-        receivedData: meetingData,
-      });
+      return res.status(400).json({ success: false, message: "Please provide: attendee name/email, date/time, and platform (Zoom/Google Meet).", receivedData: meetingData });
     }
 
-    let finalPlatform = meetingData.platform || userPlatform;
-    
+    const finalPlatform = meetingData.platform || userPlatform;
     if (!finalPlatform || !["zoom", "google"].includes(finalPlatform)) {
-      return res.status(400).json({
-        success: false,
-        message: "Please mention Zoom or Google Meet in your request",
-        receivedData: meetingData,
-      });
+      return res.status(400).json({ success: false, message: "Please mention Zoom or Google Meet", receivedData: meetingData });
     }
 
     if (finalPlatform === "zoom" && !user.zoomConnected) {
-      return res.status(400).json({
-        success: false,
-        message: "Zoom is not connected. Please connect your Zoom account in integrations first.",
-      });
+      return res.status(400).json({ success: false, message: "Zoom is not connected. Please connect in integrations first." });
     }
-
     if (finalPlatform === "google" && !user.googleConnected) {
-      return res.status(400).json({
-        success: false,
-        message: "Google Meet is not connected. Please connect your Google account in integrations first.",
-      });
+      return res.status(400).json({ success: false, message: "Google Meet is not connected. Please connect in integrations first." });
     }
 
-    const result = await schedulingService.createAutomatedMeeting(
-      meetingData,
-      userId,
-      user.email,
-      finalPlatform
-    );
-
+    const result = await schedulingService.createAutomatedMeeting(meetingData, req.user.id, user.email, finalPlatform);
     return res.status(201).json(result);
   } catch (error) {
-    let message = error.message;
-    if (message && message.startsWith("Failed to create meeting:")) {
-      message = message.replace(/^Failed to create meeting:\s*/i, "");
+    let message = error.message.replace(/^Failed to create meeting:\s*/i, "");
+    if (message.includes('User "') && message.includes("not found")) {
+      message = "One or more attendees were not found. Please use a valid email.";
     }
-    if (message && message.includes("User \"") && message.includes("not found")) {
-      message = "One or more attendees were not found in the system. Please use a valid email address or add the user first.";
-    }
-    
-    return res.status(400).json({
-      success: false,
-      message: message,
-    });
+    return res.status(400).json({ success: false, message });
   }
 };
 
-/**
- * Get suggested time slots for meeting
- * POST /api/ai/suggest-times
- */
+// Get suggested time slots
 const getSuggestedTimes = async (req, res) => {
   try {
     const { attendees, duration, startDate } = req.body;
+    if (!attendees?.length) return res.status(400).json({ success: false, message: "Please provide attendee emails" });
 
-    // Validate input
-    if (!attendees || !Array.isArray(attendees) || attendees.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Please provide attendee emails",
-      });
-    }
-
-    const meetingDuration = duration || 60;
-    const startDateObj = startDate ? new Date(startDate) : new Date();
-
-    const slots = await schedulingService.getSuggestedTimeSlots(
-      attendees,
-      startDateObj,
-      meetingDuration
-    );
-
-    return res.status(200).json({
-      success: true,
-      suggestedTimes: slots,
-      duration: meetingDuration,
-    });
+    const slots = await schedulingService.getSuggestedTimeSlots(attendees, startDate ? new Date(startDate) : new Date(), duration || 60);
+    return res.status(200).json({ success: true, suggestedTimes: slots, duration: duration || 60 });
   } catch (error) {
-    console.error("Error in getSuggestedTimes:", error);
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
-/**
- * Analyze user request without creating meeting
- * POST /api/ai/analyze-request
- */
+// Analyze request without creating
 const analyzeRequest = async (req, res) => {
   try {
     const { prompt } = req.body;
+    if (!prompt?.trim()) return res.status(400).json({ success: false, message: "Please provide a request to analyze" });
 
-    if (!prompt || !prompt.trim()) {
-      return res.status(400).json({
-        success: false,
-        message: "Please provide a request to analyze",
-      });
-    }
-
-    // Parse without creating
     const meetingData = await aiService.parseMeetingPrompt(prompt);
     const isValid = aiService.validateMeetingData(meetingData);
-
-    return res.status(200).json({
-      success: true,
-      isValid,
-      extractedData: meetingData,
-    });
+    return res.status(200).json({ success: true, isValid, extractedData: meetingData });
   } catch (error) {
-    console.error("Error in analyzeRequest:", error);
-    return res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+    return res.status(500).json({ success: false, message: error.message });
   }
 };
 
-module.exports = {
-  scheduleFromPrompt,
-  getSuggestedTimes,
-  analyzeRequest,
+// Delete meeting from natural language
+const deleteFromPrompt = async (req, res) => {
+  try {
+    const { prompt } = req.body;
+    const user = await Employee.findById(req.user.id);
+    if (!user) return res.status(404).json({ success: false, message: "User not found" });
+    if (!prompt?.trim()) return res.status(400).json({ success: false, message: "Please specify which meeting to delete" });
+
+    if (!/(delete|cancel|remove|drop|discard)\b/i.test(prompt)) {
+      return res.status(400).json({ success: false, message: "Please tell me which meeting to delete." });
+    }
+
+    const idMatch = prompt.match(/[a-f0-9]{24}/i);
+    const titleMatch = prompt.match(/"([^"]+)"|'([^']+)'/);
+
+    if (!idMatch && !titleMatch) {
+      return res.status(400).json({ success: false, message: "Please provide the meeting ID or title in quotes." });
+    }
+
+    // Delete by ID
+    if (idMatch) {
+      const meeting = await Meeting.findById(idMatch[0]);
+      if (!meeting) return res.status(404).json({ success: false, message: "Meeting not found" });
+      if (meeting.organizerEmail !== user.email) return res.status(403).json({ success: false, message: "Only organizer can delete" });
+
+      if (meeting.externalId && meeting.platform === "zoom") {
+        const cancelResult = await deleteZoomMeeting(meeting.externalId, user.zoomAccessToken, user.zoomRefreshToken);
+        if (!cancelResult.success) return res.status(502).json({ success: false, message: cancelResult.error || "Failed to cancel Zoom meeting" });
+      }
+      if (meeting.externalId && (meeting.platform === "google" || meeting.platform === "meet")) {
+        const cancelResult = await deleteGoogleMeetEvent(meeting.externalId, {
+          refreshToken: user.googleRefreshToken,
+          accessToken: user.googleAccessToken,
+        });
+        if (!cancelResult.success) return res.status(502).json({ success: false, message: cancelResult.error || "Failed to cancel Google meeting" });
+      }
+      await Meeting.deleteOne({ _id: meeting._id });
+      return res.status(200).json({
+        success: true,
+        message: "Meeting deleted successfully",
+        deletedMeeting: { id: meeting._id, title: meeting.title, startTime: meeting.startTime, endTime: meeting.endTime, platform: meeting.platform, attendees: meeting.attendees },
+      });
+    }
+
+    // Delete by title
+    const title = titleMatch?.[1] || titleMatch?.[2];
+    const meetings = await Meeting.find({ organizerEmail: user.email, title: { $regex: title, $options: "i" } }).sort({ startTime: -1 }).limit(2);
+    if (meetings.length === 0) return res.status(404).json({ success: false, message: "Meeting not found" });
+    if (meetings.length > 1) return res.status(409).json({ success: false, message: "Multiple meetings match. Please provide the meeting ID." });
+
+    const target = meetings[0];
+    if (target.externalId && target.platform === "zoom") {
+      const cancelResult = await deleteZoomMeeting(target.externalId, user.zoomAccessToken, user.zoomRefreshToken);
+      if (!cancelResult.success) return res.status(502).json({ success: false, message: cancelResult.error || "Failed to cancel" });
+    }
+    if (target.externalId && (target.platform === "google" || target.platform === "meet")) {
+      const cancelResult = await deleteGoogleMeetEvent(target.externalId, {
+        refreshToken: user.googleRefreshToken,
+        accessToken: user.googleAccessToken,
+      });
+      if (!cancelResult.success) return res.status(502).json({ success: false, message: cancelResult.error || "Failed to cancel" });
+    }
+    await Meeting.deleteOne({ _id: target._id });
+
+    return res.status(200).json({
+      success: true,
+      message: "Meeting deleted successfully",
+      deletedMeeting: { id: target._id, title: target.title, startTime: target.startTime, endTime: target.endTime, platform: target.platform, attendees: target.attendees },
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
 };
+
+module.exports = { scheduleFromPrompt, getSuggestedTimes, analyzeRequest, deleteFromPrompt };

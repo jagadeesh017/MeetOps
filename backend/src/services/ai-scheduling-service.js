@@ -1,301 +1,166 @@
 const Employee = require("../models/employee");
 const Meeting = require("../models/meeting");
+const Cluster = require("../models/groups");
 const zoomService = require("./zoom-service");
 const googleMeetService = require("./google-meet-service");
 const emailService = require("./email-invite-service");
 
-/**
- * Find available time slots for meeting
- * @param {Array<string>} attendeeEmails - Email addresses of attendees
- * @param {Date} preferredTime - User's preferred time
- * @param {number} duration - Meeting duration in minutes
- * @returns {Promise<Date>} Best available time
- */
+// Time slot validation
 const findAvailableSlot = async (attendeeEmails, preferredTime, duration) => {
   try {
-    // Get all attendees' meetings
-    const attendees = await Employee.find({
-      email: { $in: attendeeEmails },
-    });
+    const attendees = await Employee.find({ email: { $in: attendeeEmails } });
+    if (attendees.length === 0) throw new Error("No attendees found");
 
-    if (attendees.length === 0) {
-      throw new Error("No attendees found");
-    }
+    if (await checkTimeSlot(attendeeEmails, preferredTime, duration)) return preferredTime;
 
-    // Check if preferred time works
-    const isAvailable = await checkTimeSlot(
-      attendeeEmails,
-      preferredTime,
-      duration
-    );
-
-    if (isAvailable) {
-      return preferredTime;
-    }
-
-    // If not available, find next available slot
-    
     let searchTime = new Date(preferredTime);
-    const maxSearchDays = 7; // Search up to 7 days ahead
-    const incrementMinutes = 30; // Check in 30-minute intervals
-    let slotsChecked = 0;
-    const maxChecks = (maxSearchDays * 24 * 60) / incrementMinutes;
+    const maxChecks = (7 * 24 * 60) / 30;
 
-    while (slotsChecked < maxChecks) {
-      // Move to next time slot
-      searchTime.setMinutes(searchTime.getMinutes() + incrementMinutes);
-      slotsChecked++;
-
-      // Check if this slot is available
-      const slotAvailable = await checkTimeSlot(
-        attendeeEmails,
-        searchTime,
-        duration
-      );
-
-      if (slotAvailable) {
-        return searchTime;
-      }
+    for (let i = 0; i < maxChecks; i++) {
+      searchTime.setMinutes(searchTime.getMinutes() + 30);
+      if (await checkTimeSlot(attendeeEmails, searchTime, duration)) return searchTime;
     }
-
-    // Fallback: if no slot found in 7 days, return preferred time anyway
     return preferredTime;
   } catch (error) {
-    console.error("Error finding available slot:", error);
-    // Return preferred time on error to avoid blocking meeting creation
     return preferredTime;
   }
 };
 
-/**
- * Check if time slot is available for all attendees
- * @param {Array<string>} attendeeEmails
- * @param {Date} startTime
- * @param {number} duration
- * @returns {Promise<boolean>}
- */
+// Check conflict availability
 const checkTimeSlot = async (attendeeEmails, startTime, duration) => {
   try {
     const endTime = new Date(startTime.getTime() + duration * 60000);
-
-    // Check for conflicts across all meetings in the system
-    // Look for any meeting that overlaps with the proposed time
-    const conflicts = await Meeting.find({
+    const conflicts = await Meeting.findOne({
       startTime: { $lt: endTime },
       endTime: { $gt: startTime },
-    }).select('title startTime endTime attendees');
-
-    // If there are conflicts, the slot is NOT available
-    if (conflicts.length > 0) {
-      return false;
-    }
-
-    // No conflicts found, slot is available
-    return true;
-  } catch (error) {
-    // Assume available on error to prevent blocking
+    });
+    return !conflicts;
+  } catch {
     return true;
   }
 };
 
-/**
- * Validate user has required integrations connected
- */
+// Validate integration
 const validateIntegrationConnected = async (userId, platform) => {
   const user = await Employee.findById(userId);
   if (!user) throw new Error("User not found");
 
-  if (platform === "zoom") {
-    if (!user.zoomConnected || !user.zoomAccessToken) {
-      throw new Error("Please connect your Zoom account in integrations first");
-    }
-  } else if (platform === "google") {
-    if (!user.googleConnected || !user.googleAccessToken || !user.googleRefreshToken) {
-      throw new Error("Please connect your Google Calendar in integrations first");
-    }
+  const isZoomValid = platform === "zoom" && (user.zoomConnected && user.zoomAccessToken);
+  const isGoogleValid = platform === "google" && (user.googleConnected && user.googleAccessToken && user.googleRefreshToken);
+  
+  if (!isZoomValid && !isGoogleValid) {
+    throw new Error(`Please connect your ${platform === "zoom" ? "Zoom" : "Google Calendar"} account first`);
   }
   return true;
 };
 
-/**
- * Validate attendees exist in system (fuzzy partial matching on name or email, ignore spaces)
- */
+// Validate attendees 
 const validateAttendees = async (attendees) => {
-  if (!attendees || attendees.length === 0) {
-    throw new Error("At least one attendee is required");
-  }
+  if (!attendees?.length) throw new Error("At least one attendee is required");
 
-  const foundAttendees = [];
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const foundAttendees = [];
+  const allEmployees = await Employee.find().select('email name');
 
   for (const attendee of attendees) {
     const normalizedSearch = attendee.trim().toLowerCase().replace(/\s+/g, '');
-    let user;
-
-    // Check if it's an email format
-    if (emailRegex.test(attendee)) {
-      // Exact email match
-      user = await Employee.findOne({ email: attendee }).select('email name');
-    }
     
-    // If not found, try partial fuzzy matching on name or email
-    if (!user) {
-      // Get all employees and do fuzzy/partial matching
-      const allEmployees = await Employee.find().select('email name');
+    // Check if it's a group
+    const groupKeywords = ['team', 'group', 'cluster'];
+    const isGroupReference = groupKeywords.some(kw => normalizedSearch.includes(kw));
+    
+    if (isGroupReference) {
+     
+      const cluster = await Cluster.findOne({
+        name: { $regex: new RegExp(attendee, 'i') }
+      }).populate('members', 'email name');
       
-      for (const emp of allEmployees) {
-        const empName = emp.name.toLowerCase().replace(/\s+/g, '');
-        const empEmail = emp.email.toLowerCase().replace(/\s+/g, '');
-        
-        // Check if attendee is contained in name or email (partial match, ignore spaces)
-        if (empName.includes(normalizedSearch) || empEmail.includes(normalizedSearch) ||
-            normalizedSearch.includes(empName) || normalizedSearch.includes(empEmail)) {
-          user = emp;
-          break;
-        }
+      if (cluster && cluster.members.length > 0) {
+        // Add all cluster members
+        cluster.members.forEach(member => {
+          if (!foundAttendees.includes(member.email)) {
+            foundAttendees.push(member.email);
+          }
+        });
+        continue;
       }
     }
+    
+    // Individual user lookup
+    let user = emailRegex.test(attendee) ? await Employee.findOne({ email: attendee }).select('email name') : null;
 
     if (!user) {
-      throw new Error(`User "${attendee}" not found. Please check the name or email.`);
+      user = allEmployees.find(emp => {
+        const empName = emp.name.toLowerCase().replace(/\s+/g, '');
+        const empEmail = emp.email.toLowerCase().replace(/\s+/g, '');
+        return empName.includes(normalizedSearch) || empEmail.includes(normalizedSearch) ||
+               normalizedSearch.includes(empName) || normalizedSearch.includes(empEmail);
+      });
     }
 
-    foundAttendees.push(user.email);
-  }
-
-  if (foundAttendees.length === 0) {
-    throw new Error(`No valid attendees found`);
+    if (!user) throw new Error(`User or group "${attendee}" not found.`);
+    if (!foundAttendees.includes(user.email)) {
+      foundAttendees.push(user.email);
+    }
   }
 
   return foundAttendees;
 };
 
-/**
- * Validate meeting time is in future
- */
+// Validate future meeting time
 const validateMeetingTime = (meetingTime) => {
-  const now = new Date();
-  const timeDiff = meetingTime.getTime() - now.getTime();
-  const minutesDiff = timeDiff / (1000 * 60);
-
+  const minutesDiff = (meetingTime.getTime() - new Date().getTime()) / (1000 * 60);
   if (minutesDiff < 30) {
-    // Suggest a time 1 hour from now
-    const suggestedTime = new Date(now.getTime() + 60 * 60000);
-    const timeStr = suggestedTime.toLocaleString('en-US', {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-    throw new Error(`Meeting must be scheduled at least 30 minutes from now. Try scheduling for ${timeStr} or later.`);
+    const suggestedTime = new Date(Date.now() + 60 * 60000);
+    throw new Error(`Meeting must be scheduled at least 30 minutes from now. Try ${suggestedTime.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}.`);
   }
 };
 
-/**
- * Create meeting with all details
- * @param {Object} meetingData - Parsed meeting data
- * @param {string} userId - Creating user's ID
- * @param {string} userEmail - Creating user's email
- * @param {string} platform - "zoom" or "google"
- * @returns {Promise<Object>} Created meeting details
- */
+// Create automated meeting
 const createAutomatedMeeting = async (meetingData, userId, userEmail, platform) => {
   try {
-    // Validate integration is connected
     await validateIntegrationConnected(userId, platform);
-
-    // Validate attendees and get actual email addresses
     const validatedAttendeeEmails = await validateAttendees(meetingData.attendees);
-    
-    // Validate meeting time
     validateMeetingTime(meetingData.suggestedTime);
 
-    // Find best available time
-    const finalTime = await findAvailableSlot(
-      validatedAttendeeEmails,
-      meetingData.suggestedTime,
-      meetingData.duration
-    );
-
-    let meetingLink;
-
-    // Get user's integration tokens
+    const finalTime = await findAvailableSlot(validatedAttendeeEmails, meetingData.suggestedTime, meetingData.duration);
     const user = await Employee.findById(userId);
     if (!user) throw new Error("User not found");
 
-    // Create meeting on selected platform
+    const endTime = new Date(finalTime.getTime() + meetingData.duration * 60000);
+    let meetingLink, externalId;
+
     if (platform === "zoom") {
-      // Validate Zoom tokens exist
-      if (!user.zoomAccessToken) {
-        throw new Error("Zoom tokens not found. Please reconnect Zoom.");
-      }
-      
+      if (!user.zoomAccessToken) throw new Error("Zoom tokens not found");
       const zoomResponse = await zoomService.createZoomMeeting(
-        {
-          title: meetingData.title,
-          startTime: finalTime.toISOString(),
-          endTime: new Date(finalTime.getTime() + meetingData.duration * 60000).toISOString(),
-          timezone: "UTC",
-          description: meetingData.description || ""
-        },
-        user.zoomAccessToken,
-        user.zoomRefreshToken
+        { title: meetingData.title, startTime: finalTime.toISOString(), endTime: endTime.toISOString(), timezone: "UTC", description: meetingData.description || "" },
+        user.zoomAccessToken, user.zoomRefreshToken
       );
-
-      if (!zoomResponse.success) {
-        throw new Error(`Zoom API Error: ${zoomResponse.error || "Failed to create meeting"}`);
-      }
-
+      if (!zoomResponse.success) throw new Error(`Zoom API Error: ${zoomResponse.error}`);
       meetingLink = zoomResponse.meetingUrl;
-      if (!meetingLink) throw new Error("Failed to get Zoom meeting link");
+      externalId = zoomResponse.meetingId || null;
     } else if (platform === "google") {
-      // Validate Google tokens exist
-      if (!user.googleRefreshToken || !user.googleAccessToken) {
-        throw new Error("Google Calendar tokens not found. Please reconnect Google.");
-      }
-      
-
+      if (!user.googleRefreshToken || !user.googleAccessToken) throw new Error("Google tokens not found");
       const googleResponse = await googleMeetService.createGoogleMeetMeeting(
-        {
-          title: meetingData.title,
-          startTime: finalTime,
-          endTime: new Date(finalTime.getTime() + meetingData.duration * 60000),
-          organizerEmail: userEmail,
-          attendees: validatedAttendeeEmails.map(email => ({ email })),
-          description: meetingData.description || "",
-          timezone: "IST"
-        },
-        {
-          accessToken: user.googleAccessToken,
-          refreshToken: user.googleRefreshToken
-        }
+        { title: meetingData.title, startTime: finalTime, endTime, organizerEmail: userEmail, attendees: validatedAttendeeEmails.map(e => ({ email: e })), description: meetingData.description || "", timezone: "IST" },
+        { accessToken: user.googleAccessToken, refreshToken: user.googleRefreshToken }
       );
-
-      if (!googleResponse.success) {
-        throw new Error(`Google API Error: ${googleResponse.error || "Failed to create meeting"}`);
-      }
-
+      if (!googleResponse.success) throw new Error(`Google API Error: ${googleResponse.error}`);
       meetingLink = googleResponse.hangoutLink || googleResponse.meetingUrl;
-      if (!meetingLink) throw new Error("Failed to get Google Meet link");
+      externalId = googleResponse.eventId || null;
     } else {
-      throw new Error("Invalid platform specified");
+      throw new Error("Invalid platform");
     }
 
-    // Format attendees for database using validated emails
-    const attendeeObjects = validatedAttendeeEmails.map(email => ({
-      email: email,
-      name: email.split('@')[0] // Extract name from email
-    }));
-
-    // Save meeting to database
+    const attendeeObjects = validatedAttendeeEmails.map(e => ({ email: e, name: e.split('@')[0] }));
     const meeting = new Meeting({
       title: meetingData.title,
       description: meetingData.description,
       attendees: attendeeObjects,
       startTime: finalTime,
-      endTime: new Date(finalTime.getTime() + meetingData.duration * 60000),
+      endTime,
       joinUrl: meetingLink,
+      externalId,
       platform,
       organizerEmail: userEmail,
       createdBy: userId,
@@ -303,19 +168,15 @@ const createAutomatedMeeting = async (meetingData, userId, userEmail, platform) 
 
     await meeting.save();
 
-    // Send email invites
-    try {
-      await emailService.sendMeetingInvites({
-        title: meetingData.title,
-        attendees: attendeeObjects,
-        startTime: finalTime,
-        endTime: new Date(finalTime.getTime() + meetingData.duration * 60000),
-        organizerEmail: userEmail,
-        description: meetingData.description,
-        joinUrl: meetingLink,
-      });
-    } catch (emailError) {
-    }
+    emailService.sendMeetingInvites({
+      title: meetingData.title,
+      attendees: attendeeObjects,
+      startTime: finalTime,
+      endTime,
+      organizerEmail: userEmail,
+      description: meetingData.description,
+      joinUrl: meetingLink,
+    }).catch(() => {});
 
     return {
       success: true,
@@ -335,51 +196,25 @@ const createAutomatedMeeting = async (meetingData, userId, userEmail, platform) 
   }
 };
 
-/**
- * Get suggested time slots
- * @param {Array<string>} attendeeEmails
- * @param {Date} startDate
- * @param {number} duration
- * @returns {Promise<Array>} Available time slots
- */
-const getSuggestedTimeSlots = async (
-  attendeeEmails,
-  startDate,
-  duration
-) => {
-  try {
-    const slots = [];
-    const current = new Date(startDate);
+// Get suggested time slots
+const getSuggestedTimeSlots = async (attendeeEmails, startDate, duration) => {
+  const slots = [];
+  const current = new Date(startDate);
+  const times = [9, 10, 14, 15, 16];
 
-    // Suggest 5 time slots
-    for (let i = 0; i < 5; i++) {
-      // Skip weekends
-      if (current.getDay() !== 0 && current.getDay() !== 6) {
-        // Set to 9 AM, 10 AM, 2 PM, 3 PM, 4 PM
-        const times = [9, 10, 14, 15, 16];
-        for (const hour of times) {
-          current.setHours(hour, 0, 0, 0);
-          const isAvailable = await checkTimeSlot(
-            attendeeEmails,
-            new Date(current),
-            duration
-          );
-
-          if (isAvailable) {
-            slots.push(new Date(current));
-            if (slots.length >= 5) break;
-          }
+  for (let i = 0; i < 5 && slots.length < 5; i++) {
+    if (current.getDay() !== 0 && current.getDay() !== 6) {
+      for (const hour of times) {
+        current.setHours(hour, 0, 0, 0);
+        if (await checkTimeSlot(attendeeEmails, new Date(current), duration)) {
+          slots.push(new Date(current));
+          if (slots.length >= 5) break;
         }
       }
-
-      if (slots.length >= 5) break;
-      current.setDate(current.getDate() + 1);
     }
-
-    return slots;
-  } catch (error) {
-    throw error;
+    current.setDate(current.getDate() + 1);
   }
+  return slots;
 };
 
 module.exports = {

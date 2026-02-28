@@ -29,7 +29,7 @@ export default function Dashboard() {
       // Data fetching in effect is intentional
       fetchStatus();
     }
-  }, [user, fetchStatus]);
+  }, [user]);
 
   // Handle OAuth Redirects
   useEffect(() => {
@@ -82,7 +82,7 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-[#1f1f1f] text-gray-800 dark:text-gray-100">
-      <header className="bg-white dark:bg-[#292929] shadow-sm px-6 py-3 flex justify-between items-center border-b border-gray-200 dark:border-[#3d3d3d]">
+      <header className="bg-white dark:bg-[#292929] shadow-sm px-4 py-2 flex justify-between items-center border-b border-gray-200 dark:border-[#3d3d3d]">
         <h1 className="text-xl font-semibold text-blue-600 dark:text-[#6264a7]">MeetOps</h1>
 
         <div className="flex items-center gap-4">
@@ -99,20 +99,20 @@ export default function Dashboard() {
         </div>
       </header>
 
-      <main className="p-6">
+      <main className="p-4">
         {/* Welcome Section */}
-        <div className="mb-8">
-          <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Schedule</h2>
-          <p className="text-gray-600 dark:text-gray-400">Manage your meetings and integrations</p>
+        <div className="mb-4">
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">Schedule</h2>
+          <p className="text-sm text-gray-600 dark:text-gray-400">Manage your meetings and integrations</p>
         </div>
 
         {/* Action Bar */}
-        <div className="flex flex-col lg:flex-row gap-4 mb-8">
+        <div className="flex flex-col lg:flex-row gap-3 mb-4">
           {/* Primary Actions */}
           <div className="flex gap-3">
             <button
               onClick={() => setShowScheduleForm(true)}
-              className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 px-4 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md"
+              className="inline-flex items-center gap-2 bg-blue-600 text-white font-semibold py-2 px-3.5 rounded-lg transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400/60 shadow-sm"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v14m7-7H5" />
@@ -122,7 +122,7 @@ export default function Dashboard() {
 
             <button
               onClick={() => setShowAIScheduler(true)}
-              className="inline-flex items-center gap-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white font-semibold py-2.5 px-4 rounded-lg transition-all duration-200 shadow-sm hover:shadow-md"
+              className="inline-flex items-center gap-2 bg-white dark:bg-[#2b2b2b] text-gray-800 dark:text-gray-100 font-semibold py-2 px-3.5 rounded-lg border border-gray-200 dark:border-[#3a3a3a] transition hover:bg-gray-50 dark:hover:bg-[#333] shadow-sm"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -132,10 +132,10 @@ export default function Dashboard() {
           </div>
 
           {/* Integration Status */}
-          <div className="ml-auto flex gap-3">
+          <div className="ml-auto flex gap-2">
             <button
               onClick={integrations.google.connected ? () => handleDisconnect('google') : handleConnectGoogle}
-              className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium text-sm transition-all duration-200 ${
+              className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${
                 integrations.google.connected
                   ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/50'
                   : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
@@ -153,7 +153,7 @@ export default function Dashboard() {
 
             <button
               onClick={integrations.zoom.connected ? () => handleDisconnect('zoom') : handleConnectZoom}
-              className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium text-sm transition-all duration-200 ${
+              className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${
                 integrations.zoom.connected
                   ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/50'
                   : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
@@ -169,7 +169,7 @@ export default function Dashboard() {
         </div>
 
         {/* Calendar Container */}
-        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden" style={{ height: 'calc(100vh - 280px)' }}>
+        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden" style={{ height: 'calc(100vh - 210px)' }}>
           <CustomCalendar key={refreshKey} />
         </div>
       </main>
