@@ -104,6 +104,16 @@ const MeetingSchema = new mongoose.Schema({
     default: "scheduled"
   },
 
+  cancelledAt: {
+    type: Date,
+    default: null
+  },
+
+  cancelledBy: {
+    type: String,
+    default: null
+  },
+
   
   createdAt: {
     type: Date,
