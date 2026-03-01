@@ -3,7 +3,7 @@ const jwt = require('jsonwebtoken');
 const { login } = require('../../src/controllers/authController');
 const Employee = require('../../src/models/employee');
 
-// Mock dependencies
+
 jest.mock('bcrypt');
 jest.mock('jsonwebtoken');
 jest.mock('../../src/models/employee');

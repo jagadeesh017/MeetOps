@@ -4,6 +4,7 @@ import { createMeeting, checkAttendeeAvailability } from '../services/api';
 import { getTimezoneList } from '../utils/calendarUtils';
 import { getIntegrationStatus } from '../services/integrations';
 import api from '../services/api';
+import { useToast } from '../context/ToastContext';
 
 export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate = null }) {
     const { user } = useContext(AuthContext);
@@ -59,6 +60,7 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
     const [attendeeSuggestions, setAttendeeSuggestions] = useState([]);
     const [showSuggestions, setShowSuggestions] = useState(false);
     const suggestionsRef = useRef(null);
+    const { showToast } = useToast();
 
     const timezones = getTimezoneList();
     const platforms = [
@@ -254,7 +256,7 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
             if (result.available) {
                 setError(null);
                 setBusyAttendees([]);
-                alert('✅ All attendees are available for this time slot!');
+                showToast('All attendees are available for this time slot', 'success');
             } else {
                 setBusyAttendees(result.busyAttendees);
                 setShowBusyWarning(true);

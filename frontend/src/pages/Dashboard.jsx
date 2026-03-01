@@ -4,16 +4,19 @@ import CustomCalendar from "../components/CustomCalendar";
 import ScheduleMeeting from "../components/ScheduleMeeting";
 import AIScheduler from "../components/AIScheduler";
 import { getIntegrationStatus, connectGoogle, connectZoom, disconnectIntegration } from "../services/integrations";
+import { useToast } from "../context/ToastContext";
 
 export default function Dashboard() {
   const { user, setUser } = useContext(AuthContext);
   const [showScheduleForm, setShowScheduleForm] = useState(false);
   const [showAIScheduler, setShowAIScheduler] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [pendingDisconnect, setPendingDisconnect] = useState(null);
   const [integrations, setIntegrations] = useState({
     google: { connected: false, email: null },
     zoom: { connected: false, email: null }
   });
+  const { showToast } = useToast();
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -46,7 +49,7 @@ export default function Dashboard() {
       const { url } = await connectGoogle();
       window.location.href = url;
     } catch {
-      alert("Failed to start Google connection");
+      showToast("Failed to start Google connection", "error");
     }
   };
 
@@ -55,18 +58,30 @@ export default function Dashboard() {
       const { url } = await connectZoom();
       window.location.href = url;
     } catch {
-      alert("Failed to start Zoom connection");
+      showToast("Failed to start Zoom connection", "error");
     }
   };
 
-  const handleDisconnect = async (platform) => {
-    if (!window.confirm(`Are you sure you want to disconnect ${platform}?`)) return;
+  const requestDisconnect = (platform) => {
+    setPendingDisconnect(platform);
+  };
+
+  const confirmDisconnect = async () => {
+    if (!pendingDisconnect) return;
     try {
-      await disconnectIntegration(platform);
+      await disconnectIntegration(pendingDisconnect);
       fetchStatus();
+      const label = pendingDisconnect === "google" ? "Google" : "Zoom";
+      showToast(`${label} disconnected successfully`, "success");
     } catch {
-      alert(`Failed to disconnect ${platform}`);
+      showToast(`Failed to disconnect ${pendingDisconnect}`, "error");
+    } finally {
+      setPendingDisconnect(null);
     }
+  };
+
+  const cancelDisconnect = () => {
+    setPendingDisconnect(null);
   };
 
   const logout = () => {
@@ -129,7 +144,7 @@ export default function Dashboard() {
 
           <div className="ml-auto flex gap-2">
             <button
-              onClick={integrations.google.connected ? () => handleDisconnect('google') : handleConnectGoogle}
+              onClick={integrations.google.connected ? () => requestDisconnect('google') : handleConnectGoogle}
               className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${
                 integrations.google.connected
                   ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/50'
@@ -147,7 +162,7 @@ export default function Dashboard() {
             </button>
 
             <button
-              onClick={integrations.zoom.connected ? () => handleDisconnect('zoom') : handleConnectZoom}
+              onClick={integrations.zoom.connected ? () => requestDisconnect('zoom') : handleConnectZoom}
               className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${
                 integrations.zoom.connected
                   ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/50'
@@ -181,6 +196,31 @@ export default function Dashboard() {
           onClose={() => setShowAIScheduler(false)}
           onMeetingCreated={handleMeetingCreated}
         />
+      )}
+
+      {pendingDisconnect && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-40">
+          <div className="bg-white dark:bg-[#2b2b2b] rounded-lg shadow-xl p-6 w-full max-w-sm border border-gray-200 dark:border-[#3a3a3a]">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">Disconnect integration</h3>
+            <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+              Are you sure you want to disconnect {pendingDisconnect === "google" ? "Google Calendar" : "Zoom"}?
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={cancelDisconnect}
+                className="px-3 py-1.5 rounded-lg text-sm border border-gray-200 dark:border-[#4a4a4a] text-gray-700 dark:text-gray-200 bg-white dark:bg-[#333] hover:bg-gray-50 dark:hover:bg-[#444]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDisconnect}
+                className="px-3 py-1.5 rounded-lg text-sm bg-red-600 text-white hover:bg-red-700"
+              >
+                Disconnect
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

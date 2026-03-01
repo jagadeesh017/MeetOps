@@ -1,4 +1,4 @@
-// Set GROQ_API_KEY before requiring modules
+
 process.env.GROQ_API_KEY = 'test-groq-api-key';
 
 const aiController = require('../../src/controllers/aiController');

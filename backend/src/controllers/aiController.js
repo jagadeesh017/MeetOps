@@ -61,7 +61,15 @@ const scheduleFromPrompt = async (req, res) => {
       return res.status(400).json({ success: false, message: "Google Meet is not connected. Please connect in integrations first." });
     }
 
-    const result = await schedulingService.createAutomatedMeeting(meetingData, req.user.id, user.email, finalPlatform);
+    const cleanedDescription = (meetingData.description || "")
+      .replace(/NEEDS_TIME/g, "")
+      .replace(/NEEDS_ATTENDEES/g, "")
+      .replace(/NEEDS_PLATFORM_ASK/g, "")
+      .trim();
+
+    const safeMeetingData = { ...meetingData, description: cleanedDescription || "" };
+
+    const result = await schedulingService.createAutomatedMeeting(safeMeetingData, req.user.id, user.email, finalPlatform);
     return res.status(201).json(result);
   } catch (error) {
     let message = error.message.replace(/^Failed to create meeting:\s*/i, "");

@@ -3,6 +3,7 @@ import { AuthContext } from '../context/Authcontext';
 import { deleteMeeting, getMeetings } from '../services/api';
 import { getTimezoneList, getLocalTimezone } from '../utils/calendarUtils';
 import ScheduleMeeting from './ScheduleMeeting';
+import { useToast } from '../context/ToastContext';
 
 const PLATFORM_CONFIG = {
     zoom: { label: 'Zoom', color: 'bg-blue-100 text-blue-700', dot: 'bg-blue-500', accent: '#2D8CFF' },
@@ -143,6 +144,7 @@ export default function CustomCalendar() {
     const [selectedSlot, setSelectedSlot] = useState(null);
     const [selectedMeeting, setSelectedMeeting] = useState(null);
     const [deleting, setDeleting] = useState(false);
+    const { showToast } = useToast();
 
     const timezones = getTimezoneList();
     const hours = Array.from({ length: 24 }, (_, i) => i);
@@ -235,14 +237,15 @@ export default function CustomCalendar() {
 
     const handleDeleteMeeting = async (meeting) => {
         if (!meeting?._id) return;
-        if (!window.confirm("Delete this meeting?")) return;
         setDeleting(true);
         try {
             await deleteMeeting(meeting._id);
             setSelectedMeeting(null);
             await fetchMeetings();
+            showToast('Meeting deleted successfully', 'success');
         } catch (err) {
-            alert('Failed to delete meeting: ' + (err.response?.data?.message || err.message || 'Unknown error'));
+            const msg = err.response?.data?.message || err.message || 'Unknown error';
+            showToast('Failed to delete meeting: ' + msg, 'error');
         } finally {
             setDeleting(false);
         }
