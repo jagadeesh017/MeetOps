@@ -121,7 +121,6 @@ const MeetingSchema = new mongoose.Schema({
   }
 });
 
-// Indexes to improve conflict query performance
 MeetingSchema.index({ startTime: 1, endTime: 1 });
 MeetingSchema.index({ organizerEmail: 1 });
 MeetingSchema.index({ "attendees.email": 1 });

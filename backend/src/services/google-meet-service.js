@@ -1,6 +1,5 @@
 const { google } = require('googleapis');
 
-// Create Google Meet meeting
 async function createGoogleMeetMeeting(meetingData, userTokens) {
   try {
     const { title, startTime, endTime, organizerEmail, attendees, timezone, description } = meetingData;
@@ -47,7 +46,6 @@ async function createGoogleMeetMeeting(meetingData, userTokens) {
   }
 }
 
-// Delete Google Meet event
 async function deleteGoogleMeetEvent(eventId, userTokens) {
   try {
     const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI } = process.env;

@@ -5,7 +5,6 @@ const zoomService = require("./zoom-service");
 const googleMeetService = require("./google-meet-service");
 const emailService = require("./email-invite-service");
 
-// Time slot validation
 const findAvailableSlot = async (attendeeEmails, preferredTime, duration) => {
   try {
     const attendees = await Employee.find({ email: { $in: attendeeEmails } });
@@ -26,7 +25,6 @@ const findAvailableSlot = async (attendeeEmails, preferredTime, duration) => {
   }
 };
 
-// Check conflict availability
 const checkTimeSlot = async (attendeeEmails, startTime, duration) => {
   try {
     const endTime = new Date(startTime.getTime() + duration * 60000);
@@ -40,7 +38,6 @@ const checkTimeSlot = async (attendeeEmails, startTime, duration) => {
   }
 };
 
-// Validate integration
 const validateIntegrationConnected = async (userId, platform) => {
   const user = await Employee.findById(userId);
   if (!user) throw new Error("User not found");
@@ -54,7 +51,6 @@ const validateIntegrationConnected = async (userId, platform) => {
   return true;
 };
 
-// Validate attendees 
 const validateAttendees = async (attendees) => {
   if (!attendees?.length) throw new Error("At least one attendee is required");
 
@@ -65,7 +61,6 @@ const validateAttendees = async (attendees) => {
   for (const attendee of attendees) {
     const normalizedSearch = attendee.trim().toLowerCase().replace(/\s+/g, '');
     
-    // Check if it's a group
     const groupKeywords = ['team', 'group', 'cluster'];
     const isGroupReference = groupKeywords.some(kw => normalizedSearch.includes(kw));
     
@@ -76,7 +71,6 @@ const validateAttendees = async (attendees) => {
       }).populate('members', 'email name');
       
       if (cluster && cluster.members.length > 0) {
-        // Add all cluster members
         cluster.members.forEach(member => {
           if (!foundAttendees.includes(member.email)) {
             foundAttendees.push(member.email);
@@ -85,8 +79,7 @@ const validateAttendees = async (attendees) => {
         continue;
       }
     }
-    
-    // Individual user lookup
+
     let user = emailRegex.test(attendee) ? await Employee.findOne({ email: attendee }).select('email name') : null;
 
     if (!user) {
@@ -107,7 +100,6 @@ const validateAttendees = async (attendees) => {
   return foundAttendees;
 };
 
-// Validate future meeting time
 const validateMeetingTime = (meetingTime) => {
   const minutesDiff = (meetingTime.getTime() - new Date().getTime()) / (1000 * 60);
   if (minutesDiff < 30) {
@@ -116,7 +108,6 @@ const validateMeetingTime = (meetingTime) => {
   }
 };
 
-// Create automated meeting
 const createAutomatedMeeting = async (meetingData, userId, userEmail, platform) => {
   try {
     await validateIntegrationConnected(userId, platform);
@@ -132,10 +123,41 @@ const createAutomatedMeeting = async (meetingData, userId, userEmail, platform) 
 
     if (platform === "zoom") {
       if (!user.zoomAccessToken) throw new Error("Zoom tokens not found");
-      const zoomResponse = await zoomService.createZoomMeeting(
-        { title: meetingData.title, startTime: finalTime.toISOString(), endTime: endTime.toISOString(), timezone: "UTC", description: meetingData.description || "" },
-        user.zoomAccessToken, user.zoomRefreshToken
+
+      let zoomResponse = await zoomService.createZoomMeeting(
+        {
+          title: meetingData.title,
+          startTime: finalTime.toISOString(),
+          endTime: endTime.toISOString(),
+          timezone: "UTC",
+          description: meetingData.description || "",
+        },
+        user.zoomAccessToken,
+        user.zoomRefreshToken
       );
+      if (!zoomResponse.success && zoomResponse.status === 401 && user.zoomRefreshToken) {
+        try {
+          const tokens = await zoomService.refreshZoomToken(user.zoomRefreshToken);
+          user.zoomAccessToken = tokens.access_token;
+          if (tokens.refresh_token) user.zoomRefreshToken = tokens.refresh_token;
+          await user.save();
+
+          zoomResponse = await zoomService.createZoomMeeting(
+            {
+              title: meetingData.title,
+              startTime: finalTime.toISOString(),
+              endTime: endTime.toISOString(),
+              timezone: "UTC",
+              description: meetingData.description || "",
+            },
+            user.zoomAccessToken,
+            user.zoomRefreshToken
+          );
+        } catch (refreshErr) {
+          throw new Error("Zoom token refresh failed. Please reconnect your Zoom integration.");
+        }
+      }
+
       if (!zoomResponse.success) throw new Error(`Zoom API Error: ${zoomResponse.error}`);
       meetingLink = zoomResponse.meetingUrl;
       externalId = zoomResponse.meetingId || null;

@@ -1,7 +1,6 @@
 const Meeting = require("../models/meeting");
 const Employee = require("../models/employee");
 
-// Services
 const { createZoomMeeting, refreshZoomToken, deleteZoomMeeting } = require("../services/zoom-service");
 const { createGoogleMeetMeeting, deleteGoogleMeetEvent } = require("../services/google-meet-service");
 const { saveAndInvite } = require("../services/meetingService");
@@ -101,13 +100,10 @@ async function cancelExternalMeeting(meeting, user) {
   return { success: true, skipped: true };
 }
 
-//CONTROLLERS
-
 exports.createMeeting = async (req, res) => {
   try {
     const { title, startTime, endTime, organizerEmail, attendees, platform, timezone, description, isRecurring, recurrencePattern, recurrenceEndDate, recurrenceCount, ignoreBusy } = req.body;
 
-    // Validate
     const user = await Employee.findById(req.user.id);
     if (!user) return res.status(404).json({ message: "User not found" });
     if (!title || !startTime || !endTime || !organizerEmail) return res.status(400).json({ message: "Missing required fields" });
@@ -122,7 +118,6 @@ exports.createMeeting = async (req, res) => {
     const desc = description || "";
     const safeAttendees = normalizeAttendees(attendees);
 
-    // Generate slots
     const slots = generateSlots(newStart, newEnd, { isRecurring, pattern: recurrencePattern, endDate: recurrenceEndDate, count: recurrenceCount });
 
     
@@ -133,7 +128,6 @@ exports.createMeeting = async (req, res) => {
       }
     }
 
-    // Check attendee conflicts
     if (!ignoreBusy && safeAttendees.length > 0) {
       const emails = safeAttendees.map((a) => a.email);
       const busy = await checkAttendeesConflicts(emails, slots);
@@ -150,14 +144,12 @@ exports.createMeeting = async (req, res) => {
       }
     }
 
-    // Create external meeting link
     const videoResult = await createMeetingLink(platform, { title, startTime: newStart, endTime: newEnd, organizerEmail, attendees: safeAttendees, timezone: tz, description: desc }, user);
     if (!videoResult.success) return res.status(502).json({ error: videoResult.error });
 
     const externalId = videoResult.meetingId || videoResult.eventId || null;
     const joinUrl = videoResult.meetingUrl;
 
-    // Build meeting docs
     const baseMeeting = { title, organizerEmail, attendees: safeAttendees, platform, timezone: tz, description: desc, joinUrl, externalId };
     const seriesId = isRecurring ? `series-${Date.now()}` : null;
 
@@ -172,7 +164,6 @@ exports.createMeeting = async (req, res) => {
       seriesId,
     }));
 
-    // Save and send invites
     const invitePayload = buildInvitePayload({ title, startTime: newStart, endTime: newEnd, organizerEmail, attendees: safeAttendees, description: desc, joinUrl, platform });
     const created = await saveAndInvite(meetingDocs, invitePayload);
 
@@ -221,7 +212,6 @@ exports.checkAttendeeAvailability = async (req, res) => {
     return res.status(500).json({ error: err.message });
   }
 };
-//cancel
 exports.cancelMeeting = async (req, res) => {
   try {
     const { meetingId } = req.params;

@@ -18,8 +18,6 @@ const createTransporter = () => {
   });
 };
 
-
-// Build ICS 
 const buildICS = ({ title, startTime, endTime, organizerEmail, attendees, description, joinUrl }) => {
   const icalLib = require('ical-generator');
   const createCal = icalLib.default || icalLib;
@@ -38,8 +36,6 @@ const buildICS = ({ title, startTime, endTime, organizerEmail, attendees, descri
   return cal.toString();
 };
 
-
-// Send meeting invites
 async function sendMeetingInvites(meetingData) {
   const { title, organizerEmail, attendees = [] } = meetingData;
   if (attendees.length === 0) return { sent: 0, failed: 0, errors: [] };

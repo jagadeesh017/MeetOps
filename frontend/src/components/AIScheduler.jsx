@@ -252,7 +252,7 @@ export default function AIScheduler({ onClose, onMeetingCreated }) {
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Describe your meeting... (e.g., 30-min sync with John tomorrow at 2 PM on Zoom)"
+              placeholder="Ex: 45-min project discussion tomorrow at 11 AM on Google Meet"
               disabled={loading}
               className="flex-1 bg-gray-100 dark:bg-[#3a3a3a] text-gray-900 dark:text-white rounded-full px-5 py-3 text-sm placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white dark:focus:bg-[#404040] transition-colors disabled:opacity-50"
             />
@@ -273,7 +273,7 @@ export default function AIScheduler({ onClose, onMeetingCreated }) {
             </button>
           </form>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 text-center">
-            Tip: Be natural and descriptive. The AI will handle all the details!
+            Tip: No need for perfect formatting — just describe it. AI will figure it out.          
           </p>
         </div>
       </div>

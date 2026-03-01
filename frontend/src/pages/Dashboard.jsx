@@ -26,7 +26,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (user) {
-      // Data fetching in effect is intentional
+    
       fetchStatus();
     }
   }, [user]);
@@ -35,7 +35,6 @@ export default function Dashboard() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("googleConnected") || params.get("zoomConnected")) {
-      // Data fetching in effect is intentional after OAuth callback
       fetchStatus();
       // Clean up URL
       window.history.replaceState({}, document.title, window.location.pathname);
@@ -100,15 +99,12 @@ export default function Dashboard() {
       </header>
 
       <main className="p-4">
-        {/* Welcome Section */}
         <div className="mb-4">
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">Schedule</h2>
           <p className="text-sm text-gray-600 dark:text-gray-400">Manage your meetings and integrations</p>
         </div>
 
-        {/* Action Bar */}
         <div className="flex flex-col lg:flex-row gap-3 mb-4">
-          {/* Primary Actions */}
           <div className="flex gap-3">
             <button
               onClick={() => setShowScheduleForm(true)}
@@ -127,11 +123,10 @@ export default function Dashboard() {
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
               </svg>
-              AI Assistant
+              AI Scheduler
             </button>
           </div>
 
-          {/* Integration Status */}
           <div className="ml-auto flex gap-2">
             <button
               onClick={integrations.google.connected ? () => handleDisconnect('google') : handleConnectGoogle}

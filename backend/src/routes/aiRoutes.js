@@ -4,7 +4,6 @@ const authMiddleware = require("../middlewares/authmiddleware");
 
 const router = express.Router();
 
-// All routes require authentication
 router.use(authMiddleware);
 
 

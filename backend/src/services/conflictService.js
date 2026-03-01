@@ -21,13 +21,11 @@ async function findConflicts(emails, startTime, endTime, excludeMeetingId = null
   return Meeting.find(query).lean();
 }
 
-// Check single user 
 async function hasConflict(email, startTime, endTime, excludeMeetingId = null) {
   const conflicts = await findConflicts([email], startTime, endTime, excludeMeetingId);
   return conflicts.length > 0 ? conflicts[0] : null;
 }
 
-// Check multiple attendees for conflicts across proposed slots (parallel)
 async function checkAttendeesConflicts(emails, proposedSlots) {
   const busyAttendees = [];
 

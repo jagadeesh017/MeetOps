@@ -45,11 +45,9 @@ function EventDetailModal({ meeting, onClose, onDelete, canDelete, deleting }) {
                 className="bg-white dark:bg-[#2d2d2d] rounded-xl shadow-2xl w-full max-w-md overflow-hidden"
                 onClick={e => e.stopPropagation()}
             >
-                {/* Colored top strip */}
                 <div className="h-1.5 w-full" style={{ background: cfg.accent }} />
 
                 <div className="p-5">
-                    {/* Title + close */}
                     <div className="flex items-start justify-between gap-3 mb-4">
                         <div>
                             <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 leading-snug">
@@ -68,13 +66,11 @@ function EventDetailModal({ meeting, onClose, onDelete, canDelete, deleting }) {
                         </button>
                     </div>
 
-                    {/* Time */}
                     <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 mb-3">
                         <span>🕐</span>
                         <span>{fmt(meeting.startTime)} – {fmtTime(meeting.endTime)}</span>
                     </div>
 
-                    {/* Organizer */}
                     {meeting.organizerEmail && (
                         <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 mb-3">
                             <span>👤</span>
@@ -82,7 +78,6 @@ function EventDetailModal({ meeting, onClose, onDelete, canDelete, deleting }) {
                         </div>
                     )}
 
-                    {/* Attendees */}
                     {attendees.length > 0 && (
                         <div className="flex items-start gap-2 text-sm text-gray-600 dark:text-gray-400 mb-3">
                             <span className="mt-0.5">👥</span>
@@ -90,7 +85,6 @@ function EventDetailModal({ meeting, onClose, onDelete, canDelete, deleting }) {
                         </div>
                     )}
 
-                    {/* Description */}
                     {meeting.description && (
                         <div className="flex items-start gap-2 text-sm text-gray-600 dark:text-gray-400 mb-4">
                             <span className="mt-0.5">📝</span>
@@ -100,7 +94,6 @@ function EventDetailModal({ meeting, onClose, onDelete, canDelete, deleting }) {
 
                     <div className="border-t border-gray-200 dark:border-gray-600 my-4" />
 
-                    {/* Actions */}
                     <div className="flex items-center gap-3">
                         {meeting.joinUrl ? (
                             <a
@@ -157,7 +150,7 @@ export default function CustomCalendar() {
     const fetchMeetings = useCallback(async () => {
         if (!user?.email) return;
         try {
-            setLoading(true); // Fix: set loading to true before fetching
+            setLoading(true);
             const data = await getMeetings(user.email);
             setMeetings(data);
         } catch (err) {

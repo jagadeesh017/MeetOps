@@ -20,7 +20,6 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
     const [showBusyWarning, setShowBusyWarning] = useState(false);
     const [checkingAvailability, setCheckingAvailability] = useState(false);
 
-    // Get next 30-minute slot
     const getNextTimeSlot = () => {
         const now = initialDate || new Date();
         const minutes = now.getMinutes();
@@ -30,7 +29,6 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
         return now.toTimeString().slice(0, 5);
     };
 
-    // Calculate end time (30 min after start)
     const getDefaultEndTime = (startTime) => {
         if (!startTime) return '';
         const [hours, minutes] = startTime.split(':').map(Number);
@@ -146,13 +144,11 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
             [name]: type === 'checkbox' ? checked : value
         }));
 
-        // Auto-update end time when start time changes
         if (name === 'startTime') {
             const endTime = getDefaultEndTime(value);
             setFormData(prev => ({ ...prev, endTime }));
         }
 
-        // Auto-update end date when start date changes
         if (name === 'startDate') {
             setFormData(prev => ({ ...prev, endDate: value }));
         }

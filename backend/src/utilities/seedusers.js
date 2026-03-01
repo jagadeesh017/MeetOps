@@ -25,7 +25,6 @@ mongoose.connection.once("open", async () => {
   try {
     const password = await bcrypt.hash("123456", 10);
 
-    // Define test users
     const users = [
       { name: "Alice Johnson", email: "alice@mail.com", department: "Engineering", password },
       { name: "Bob Smith", email: "bob@mail.com", department: "Engineering", password },
@@ -39,16 +38,13 @@ mongoose.connection.once("open", async () => {
       { name: "Jack Martin", email: "jack@mail.com", department: "Marketing", password },
     ];
 
-    // Delete existing test users - get emails from users array (dynamic)
     const testEmails = users.map(u => u.email);
     await Employee.deleteMany({ email: { $in: testEmails } });
     await Cluster.deleteMany({});
 
-    // Create users
     const createdUsers = await Employee.insertMany(users);
     console.log(`✅ ${createdUsers.length} users created`);
 
-    // Create clusters/groups
     const clusters = [
       {
         name: "Frontend Team",

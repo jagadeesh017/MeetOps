@@ -4,8 +4,6 @@ const Employee = require("../models/employee");
 const Meeting = require("../models/meeting");
 const { deleteZoomMeeting } = require("../services/zoom-service");
 const { deleteGoogleMeetEvent } = require("../services/google-meet-service");
-
-// Infer platform from text
 const inferPlatformFromPrompt = (text) => {
   const lower = (text || "").toLowerCase();
   if (/(google\s*meet|google|meet)\b/.test(lower)) return "google";
@@ -13,7 +11,6 @@ const inferPlatformFromPrompt = (text) => {
   return null;
 };
 
-// Schedule meeting from natural language
 const scheduleFromPrompt = async (req, res) => {
   try {
     const { prompt, platform: userPlatform, contextAware } = req.body;
@@ -37,7 +34,8 @@ const scheduleFromPrompt = async (req, res) => {
     }
 
     const description = meetingData.description || "";
-    if (description.includes("NEEDS_PLATFORM_ASK")) {
+    // Only ask for platform if it is really missing
+    if (!meetingData.platform && description.includes("NEEDS_PLATFORM_ASK")) {
       return res.status(400).json({ success: false, message: "Which platform would you like to use? Zoom or Google Meet?", receivedData: meetingData });
     }
     if (description.includes("NEEDS_ATTENDEES")) {

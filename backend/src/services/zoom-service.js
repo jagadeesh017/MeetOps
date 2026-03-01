@@ -1,6 +1,5 @@
 const axios = require('axios');
 
-// Refresh Zoom token
 async function refreshZoomToken(refreshToken) {
   const { ZOOM_CLIENT_ID, ZOOM_CLIENT_SECRET } = process.env;
   const credentials = Buffer.from(`${ZOOM_CLIENT_ID}:${ZOOM_CLIENT_SECRET}`).toString('base64');
@@ -11,7 +10,6 @@ async function refreshZoomToken(refreshToken) {
   return response.data;
 }
 
-// Create Zoom meeting
 async function createZoomMeeting(meetingData, accessToken, refreshToken) {
   try {
     const { title, startTime, endTime, timezone, description } = meetingData;
@@ -45,7 +43,6 @@ async function createZoomMeeting(meetingData, accessToken, refreshToken) {
   }
 }
 
-// Delete Zoom meeting
 async function deleteZoomMeeting(meetingId, accessToken, refreshToken) {
   try {
     await axios.delete(`https://api.zoom.us/v2/meetings/${meetingId}`, {
