@@ -101,10 +101,14 @@ const validateAttendees = async (attendees) => {
 };
 
 const validateMeetingTime = (meetingTime) => {
-  const minutesDiff = (meetingTime.getTime() - new Date().getTime()) / (1000 * 60);
+  const now = new Date();
+  const minutesDiff = (meetingTime.getTime() - now.getTime()) / (1000 * 60);
+  if (minutesDiff < 0) {
+    throw new Error(`That time is in the past. Please choose a future date and time.`);
+  }
   if (minutesDiff < 30) {
     const suggestedTime = new Date(Date.now() + 60 * 60000);
-    throw new Error(`Meeting must be scheduled at least 30 minutes from now. Try ${suggestedTime.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}.`);
+    throw new Error(`Meetings must be scheduled at least 30 minutes from now. How about ${suggestedTime.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}?`);
   }
 };
 

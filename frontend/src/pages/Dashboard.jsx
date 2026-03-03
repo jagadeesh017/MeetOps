@@ -34,12 +34,10 @@ export default function Dashboard() {
     }
   }, [user]);
 
-  // Handle OAuth Redirects
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("googleConnected") || params.get("zoomConnected")) {
       fetchStatus();
-      // Clean up URL
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, [fetchStatus]);
@@ -95,7 +93,7 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-[#1f1f1f] text-gray-800 dark:text-gray-100">
+    <div className="h-screen overflow-hidden flex flex-col bg-gray-50 dark:bg-[#1f1f1f] text-gray-800 dark:text-gray-100">
       <header className="bg-white dark:bg-[#292929] shadow-sm px-4 py-2 flex justify-between items-center border-b border-gray-200 dark:border-[#3d3d3d]">
         <h1 className="text-xl font-semibold text-blue-600 dark:text-[#6264a7]">MeetOps</h1>
 
@@ -106,26 +104,25 @@ export default function Dashboard() {
 
           <button
             onClick={logout}
-            className="px-3 py-1.5 rounded bg-red-500 text-white hover:bg-red-600 transition text-sm"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 transition font-medium text-sm border border-red-200 dark:border-red-800/40"
           >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            </svg>
             Logout
           </button>
         </div>
       </header>
 
-      <main className="p-4">
-        <div className="mb-4">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">Schedule</h2>
-          <p className="text-sm text-gray-600 dark:text-gray-400">Manage your meetings and integrations</p>
-        </div>
+      <main className="flex-1 min-h-0 flex flex-col">
+        <div className="flex items-center gap-3 px-4 py-2.5 bg-white dark:bg-[#292929] border-b border-gray-200 dark:border-[#3d3d3d] shrink-0 flex-wrap">
+          <span className="text-base font-bold text-gray-900 dark:text-white mr-2">Schedule</span>
 
-        <div className="flex flex-col lg:flex-row gap-3 mb-4">
-          <div className="flex gap-3">
-            <button
+          <button
               onClick={() => setShowScheduleForm(true)}
-              className="inline-flex items-center gap-2 bg-blue-600 text-white font-semibold py-2 px-3.5 rounded-lg transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-400/60 shadow-sm"
+              className="inline-flex items-center gap-2 bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg transition hover:bg-blue-700 shadow-sm text-sm"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v14m7-7H5" />
               </svg>
               New Meeting
@@ -133,16 +130,15 @@ export default function Dashboard() {
 
             <button
               onClick={() => setShowAIScheduler(true)}
-              className="inline-flex items-center gap-2 bg-white dark:bg-[#2b2b2b] text-gray-800 dark:text-gray-100 font-semibold py-2 px-3.5 rounded-lg border border-gray-200 dark:border-[#3a3a3a] transition hover:bg-gray-50 dark:hover:bg-[#333] shadow-sm"
+              className="inline-flex items-center gap-2 bg-white dark:bg-[#2b2b2b] text-gray-800 dark:text-gray-100 font-semibold py-2 px-4 rounded-lg border border-gray-200 dark:border-[#3a3a3a] transition hover:bg-gray-50 dark:hover:bg-[#333] shadow-sm text-sm"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
               </svg>
               AI Scheduler
             </button>
-          </div>
 
-          <div className="ml-auto flex gap-2">
+          <div className="ml-auto flex gap-2.5">
             <button
               onClick={integrations.google.connected ? () => requestDisconnect('google') : handleConnectGoogle}
               className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${
@@ -178,8 +174,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Calendar Container */}
-        <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden" style={{ height: 'calc(100vh - 210px)' }}>
+        <div className="flex-1 min-h-0 overflow-hidden">
           <CustomCalendar key={refreshKey} />
         </div>
       </main>

@@ -113,6 +113,9 @@ exports.createMeeting = async (req, res) => {
     if (Number.isNaN(newStart.getTime())) return res.status(400).json({ error: "Invalid startTime" });
     if (Number.isNaN(newEnd.getTime())) return res.status(400).json({ error: "Invalid endTime" });
     if (newEnd <= newStart) return res.status(400).json({ error: "endTime must be after startTime" });
+    if (newStart <= new Date()) {
+      return res.status(400).json({ error: "Cannot schedule meeting for past date or time. Please select a future date and time." });
+    }
 
     const tz = timezone || DEFAULT_TIMEZONE;
     const desc = description || "";

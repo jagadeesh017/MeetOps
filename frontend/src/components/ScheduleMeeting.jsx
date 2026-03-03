@@ -22,11 +22,9 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
     const [checkingAvailability, setCheckingAvailability] = useState(false);
 
     const getNextTimeSlot = () => {
-        const now = initialDate || new Date();
-        const minutes = now.getMinutes();
-        const roundedMinutes = Math.ceil(minutes / 30) * 30;
-        now.setMinutes(roundedMinutes);
-        now.setSeconds(0);
+        const now = initialDate ? new Date(initialDate) : new Date();
+        const rounded = Math.ceil(now.getMinutes() / 30) * 30;
+        now.setMinutes(rounded, 0, 0);
         return now.toTimeString().slice(0, 5);
     };
 
@@ -34,23 +32,25 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
         if (!startTime) return '';
         const [hours, minutes] = startTime.split(':').map(Number);
         const date = new Date();
-        date.setHours(hours, minutes + 30);
+        date.setHours(hours, minutes + 30, 0, 0);
         return date.toTimeString().slice(0, 5);
     };
 
     const defaultStartTime = getNextTimeSlot();
+    const localDate = (d) => (d ? new Date(d) : new Date()).toLocaleDateString('en-CA');
 
     const [formData, setFormData] = useState({
         title: '',
-        startDate: initialDate ? initialDate.toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+        startDate: localDate(initialDate),
         startTime: defaultStartTime,
-        endDate: initialDate ? initialDate.toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+        endDate: localDate(initialDate),
         endTime: getDefaultEndTime(defaultStartTime),
         timezone: 'Asia/Kolkata',
         platform: 'zoom',
         description: '',
         isRecurring: false,
         recurrencePattern: 'daily',
+        recurrenceMode: 'count',
         recurrenceEndDate: '',
         recurrenceCount: 1,
     });
@@ -66,7 +66,6 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
     const platforms = [
         { value: 'zoom', label: 'Zoom' },
         { value: 'meet', label: 'Google Meet' },
-        { value: 'teams', label: 'Microsoft Teams' },
     ];
 
     useEffect(() => {
@@ -103,7 +102,7 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
         } else {
             setIntegrationWarning(null);
         }
-    }, [formData.platform, integrations]);
+    }, [formData.platform, integrations, integrationsLoaded]);
 
     useEffect(() => {
         const handleClickOutside = (event) => {
@@ -189,6 +188,11 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
 
         const startDateTime = new Date(`${formData.startDate}T${formData.startTime}`);
         const endDateTime = new Date(`${formData.endDate}T${formData.endTime}`);
+
+        if (startDateTime <= new Date()) {
+            setError('Start date and time cannot be in the past. Please select a future time.');
+            return;
+        }
 
         if (endDateTime <= startDateTime) {
             setError('End time must be after start time');
@@ -278,7 +282,7 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <div className="bg-white dark:bg-[#292929] rounded-lg shadow-2xl w-full max-w-2xl max-h-[95vh] flex flex-col">
 
-                {/* Header */}
+
                 <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-[#3d3d3d]">
                     <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                         New meeting
@@ -291,7 +295,7 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
                     </button>
                 </div>
 
-                {/* Form */}
+
                 <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto px-6 py-4">
                     <div className="space-y-4">
 
@@ -396,7 +400,7 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
                             </div>
                         )}
 
-                        {/* Title */}
+
                         <div>
                             <input
                                 type="text"
@@ -409,7 +413,7 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
                             />
                         </div>
 
-                        {/* Date and Time */}
+
                         <div className="grid grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">
@@ -421,6 +425,7 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
                                         name="startDate"
                                         value={formData.startDate}
                                         onChange={handleInputChange}
+                                        min={localDate()}
                                         className="w-full px-3 py-2 border border-gray-300 dark:border-[#4a4a4a] rounded focus:ring-1 focus:ring-blue-600 dark:focus:ring-[#6264a7] focus:border-blue-600 dark:focus:border-[#6264a7] dark:bg-[#3d3d3d] dark:text-gray-100 text-sm"
                                         required
                                     />
@@ -429,6 +434,7 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
                                         name="startTime"
                                         value={formData.startTime}
                                         onChange={handleInputChange}
+                                        min={formData.startDate === localDate() ? new Date().toTimeString().slice(0, 5) : undefined}
                                         className="w-full px-3 py-2 border border-gray-300 dark:border-[#4a4a4a] rounded focus:ring-1 focus:ring-blue-600 dark:focus:ring-[#6264a7] focus:border-blue-600 dark:focus:border-[#6264a7] dark:bg-[#3d3d3d] dark:text-gray-100 text-sm"
                                         required
                                     />
@@ -445,6 +451,7 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
                                         name="endDate"
                                         value={formData.endDate}
                                         onChange={handleInputChange}
+                                        min={formData.startDate || localDate()}
                                         className="w-full px-3 py-2 border border-gray-300 dark:border-[#4a4a4a] rounded focus:ring-1 focus:ring-blue-600 dark:focus:ring-[#6264a7] focus:border-blue-600 dark:focus:border-[#6264a7] dark:bg-[#3d3d3d] dark:text-gray-100 text-sm"
                                         required
                                     />
@@ -453,6 +460,7 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
                                         name="endTime"
                                         value={formData.endTime}
                                         onChange={handleInputChange}
+                                        min={formData.endDate === formData.startDate ? formData.startTime : undefined}
                                         className="w-full px-3 py-2 border border-gray-300 dark:border-[#4a4a4a] rounded focus:ring-1 focus:ring-blue-600 dark:focus:ring-[#6264a7] focus:border-blue-600 dark:focus:border-[#6264a7] dark:bg-[#3d3d3d] dark:text-gray-100 text-sm"
                                         required
                                     />
@@ -460,7 +468,6 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
                             </div>
                         </div>
 
-                        {/* Timezone */}
                         <div>
                             <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">
                                 Time zone
@@ -479,7 +486,7 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
                             </select>
                         </div>
 
-                        {/* Add attendees */}
+
                         <div>
                             <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">
                                 Add required attendees
@@ -542,7 +549,7 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
                             )}
                         </div>
 
-                        {/* Platform */}
+
                         <div>
                             <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">
                                 Meeting platform
@@ -559,7 +566,7 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
                             </select>
                         </div>
 
-                        {/* Description */}
+
                         <div>
                             <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">
                                 Add a description
@@ -574,20 +581,26 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
                             />
                         </div>
 
-                        {/* Recurring */}
+
                         <div className="pt-2">
-                            <label className="flex items-center gap-2 cursor-pointer">
-                                <input
-                                    type="checkbox"
-                                    name="isRecurring"
-                                    checked={formData.isRecurring}
-                                    onChange={handleInputChange}
-                                    className="w-4 h-4 text-blue-600 dark:text-[#6264a7] border-gray-300 dark:border-[#4a4a4a] rounded focus:ring-blue-600 dark:focus:ring-[#6264a7]"
-                                />
-                                <span className="text-sm text-gray-700 dark:text-gray-300">
-                                    Repeat
-                                </span>
-                            </label>
+                            <div className="flex items-center justify-between">
+                                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Repeat</span>
+                                <button
+                                    type="button"
+                                    onClick={() => setFormData(prev => ({ ...prev, isRecurring: !prev.isRecurring }))}
+                                    className={`relative inline-flex items-center w-11 h-6 rounded-full transition-colors duration-200 focus:outline-none ${
+                                        formData.isRecurring
+                                            ? 'bg-blue-600 dark:bg-[#6264a7]'
+                                            : 'bg-gray-300 dark:bg-[#4a4a4a]'
+                                    }`}
+                                >
+                                    <span
+                                        className={`inline-block w-4 h-4 bg-white rounded-full shadow transform transition-transform duration-200 ${
+                                            formData.isRecurring ? 'translate-x-6' : 'translate-x-1'
+                                        }`}
+                                    />
+                                </button>
+                            </div>
 
                             {formData.isRecurring && (
                                 <div className="mt-3 ml-6 space-y-3 p-3 bg-gray-50 dark:bg-[#3d3d3d] rounded">
@@ -607,42 +620,64 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
                                         </select>
                                     </div>
 
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div>
-                                            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-                                                End date
-                                            </label>
-                                            <input
-                                                type="date"
-                                                name="recurrenceEndDate"
-                                                value={formData.recurrenceEndDate}
-                                                onChange={handleInputChange}
-                                                className="w-full px-2 py-1.5 border border-gray-300 dark:border-[#4a4a4a] rounded focus:ring-1 focus:ring-blue-600 dark:focus:ring-[#6264a7] dark:bg-[#292929] dark:text-gray-100 text-sm"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
+                                    <div className="flex rounded-lg overflow-hidden border border-gray-300 dark:border-[#4a4a4a] text-xs font-medium">
+                                            <button
+                                                type="button"
+                                                onClick={() => setFormData(prev => ({ ...prev, recurrenceMode: 'count', recurrenceEndDate: '' }))}
+                                                className={`flex-1 py-1.5 transition ${
+                                                    formData.recurrenceMode === 'count'
+                                                        ? 'bg-blue-600 dark:bg-[#6264a7] text-white'
+                                                        : 'bg-white dark:bg-[#292929] text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-[#333]'
+                                                }`}
+                                            >
                                                 Occurrences
-                                            </label>
-                                            <input
-                                                type="number"
-                                                name="recurrenceCount"
-                                                value={formData.recurrenceCount}
-                                                onChange={handleInputChange}
-                                                min="1"
-                                                max="100"
-                                                className="w-full px-2 py-1.5 border border-gray-300 dark:border-[#4a4a4a] rounded focus:ring-1 focus:ring-blue-600 dark:focus:ring-[#6264a7] dark:bg-[#292929] dark:text-gray-100 text-sm"
-                                                disabled={formData.recurrenceEndDate}
-                                            />
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setFormData(prev => ({ ...prev, recurrenceMode: 'endDate', recurrenceCount: 1 }))}
+                                                className={`flex-1 py-1.5 transition ${
+                                                    formData.recurrenceMode === 'endDate'
+                                                        ? 'bg-blue-600 dark:bg-[#6264a7] text-white'
+                                                        : 'bg-white dark:bg-[#292929] text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-[#333]'
+                                                }`}
+                                            >
+                                                End Date
+                                            </button>
                                         </div>
-                                    </div>
+
+                                        {formData.recurrenceMode === 'count' ? (
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Number of occurrences</label>
+                                                <input
+                                                    type="number"
+                                                    name="recurrenceCount"
+                                                    value={formData.recurrenceCount}
+                                                    onChange={handleInputChange}
+                                                    min="1"
+                                                    max="100"
+                                                    className="w-full px-2 py-1.5 border border-gray-300 dark:border-[#4a4a4a] rounded focus:ring-1 focus:ring-blue-600 dark:focus:ring-[#6264a7] dark:bg-[#292929] dark:text-gray-100 text-sm"
+                                                />
+                                            </div>
+                                        ) : (
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">End date</label>
+                                                <input
+                                                    type="date"
+                                                    name="recurrenceEndDate"
+                                                    value={formData.recurrenceEndDate}
+                                                    onChange={handleInputChange}
+                                                    min={formData.startDate}
+                                                    className="w-full px-2 py-1.5 border border-gray-300 dark:border-[#4a4a4a] rounded focus:ring-1 focus:ring-blue-600 dark:focus:ring-[#6264a7] dark:bg-[#292929] dark:text-gray-100 text-sm"
+                                                />
+                                            </div>
+                                        )}
                                 </div>
                             )}
                         </div>
                     </div>
                 </form>
 
-                {/* Footer */}
+
                 <div className="flex justify-end gap-2 px-6 py-3 border-t border-gray-200 dark:border-[#3d3d3d]">
                     <button
                         type="button"

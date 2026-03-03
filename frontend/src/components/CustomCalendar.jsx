@@ -5,6 +5,16 @@ import { getTimezoneList, getLocalTimezone } from '../utils/calendarUtils';
 import ScheduleMeeting from './ScheduleMeeting';
 import { useToast } from '../context/ToastContext';
 
+const getPartsInTZ = (dateInput, tz) => {
+    const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: tz,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', hour12: false,
+    }).formatToParts(new Date(dateInput));
+    const v = (t) => parseInt(parts.find(p => p.type === t)?.value ?? '0');
+    return { year: v('year'), month: v('month') - 1, day: v('day'), hour: v('hour') % 24, minute: v('minute') };
+};
+
 const PLATFORM_CONFIG = {
     zoom: { label: 'Zoom', color: 'bg-blue-100 text-blue-700', dot: 'bg-blue-500', accent: '#2D8CFF' },
     meet: { label: 'Google Meet', color: 'bg-green-100 text-green-700', dot: 'bg-green-500', accent: '#34A853' },
@@ -15,26 +25,30 @@ const PLATFORM_CONFIG = {
 
 function getPlatformStyle(platform) {
     const colors = {
-        zoom: { bg: '#2D8CFF', border: '#1a6fd4', text: '#ffffff' },
-        meet: { bg: '#34A853', border: '#1e7e34', text: '#ffffff' },
+        zoom:   { bg: '#2D8CFF', border: '#1a6fd4', text: '#ffffff' },
+        meet:   { bg: '#34A853', border: '#1e7e34', text: '#ffffff' },
         google: { bg: '#34A853', border: '#1e7e34', text: '#ffffff' },
-        teams: { bg: '#6264a7', border: '#4a4c8a', text: '#ffffff' },
-
+        teams:  { bg: '#6264a7', border: '#4a4c8a', text: '#ffffff' },
+        other:  { bg: '#6b7280', border: '#4b5563', text: '#ffffff' },
     };
-    return colors[platform] || colors.other;
+    return colors[platform] ?? colors.other;
 }
 
-function EventDetailModal({ meeting, onClose, onDelete, canDelete, deleting }) {
+function EventDetailModal({ meeting, onClose, onDelete, canDelete, deleting, timezone }) {
     if (!meeting) return null;
     const platform = meeting.platform || 'other';
     const cfg = PLATFORM_CONFIG[platform] || PLATFORM_CONFIG.other;
     const attendees = meeting.attendees || [];
+    const isCancelled = meeting.status === 'cancelled';
+    const isCompleted = new Date(meeting.endTime) < new Date();
+    const tz = timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
 
     const fmt = (d) => new Date(d).toLocaleString('en-US', {
         weekday: 'short', month: 'short', day: 'numeric',
         hour: '2-digit', minute: '2-digit',
+        timeZone: tz,
     });
-    const fmtTime = (d) => new Date(d).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    const fmtTime = (d) => new Date(d).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: tz });
 
     return (
         <div
@@ -51,13 +65,27 @@ function EventDetailModal({ meeting, onClose, onDelete, canDelete, deleting }) {
                 <div className="p-5">
                     <div className="flex items-start justify-between gap-3 mb-4">
                         <div>
-                            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 leading-snug">
+                            <h2 className={`text-lg font-semibold leading-snug ${isCancelled ? 'text-gray-400 dark:text-gray-500 line-through' : 'text-gray-900 dark:text-gray-100'}`}>
                                 {meeting.title}
                             </h2>
-                            <span className={`inline-flex items-center gap-1.5 mt-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${cfg.color}`}>
-                                <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
-                                {cfg.label}
-                            </span>
+                            <div className="flex items-center gap-2 mt-1.5">
+                                <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ${isCompleted ? 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-400' : cfg.color}`}>
+                                    <span className={`w-1.5 h-1.5 rounded-full ${isCompleted ? 'bg-gray-400' : cfg.dot}`} />
+                                    {cfg.label}
+                                </span>
+                                {isCancelled && (
+                                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                                        Cancelled
+                                    </span>
+                                )}
+                                {isCompleted && !isCancelled && (
+                                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
+                                        Completed
+                                    </span>
+                                )}
+                            </div>
                         </div>
                         <button
                             onClick={onClose}
@@ -69,7 +97,10 @@ function EventDetailModal({ meeting, onClose, onDelete, canDelete, deleting }) {
 
                     <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 mb-3">
                         <span>🕐</span>
-                        <span>{fmt(meeting.startTime)} – {fmtTime(meeting.endTime)}</span>
+                        <span>
+                            {fmt(meeting.startTime)} – {fmtTime(meeting.endTime)}
+                            {isCancelled && <span className="ml-2 text-xs text-red-600 dark:text-red-300 font-medium">(Cancelled)</span>}
+                        </span>
                     </div>
 
                     {meeting.organizerEmail && (
@@ -96,7 +127,7 @@ function EventDetailModal({ meeting, onClose, onDelete, canDelete, deleting }) {
                     <div className="border-t border-gray-200 dark:border-gray-600 my-4" />
 
                     <div className="flex items-center gap-3">
-                        {meeting.joinUrl ? (
+                        {meeting.joinUrl && !isCancelled && !isCompleted ? (
                             <a
                                 href={meeting.joinUrl}
                                 target="_blank"
@@ -108,16 +139,16 @@ function EventDetailModal({ meeting, onClose, onDelete, canDelete, deleting }) {
                             </a>
                         ) : (
                             <div className="flex-1 flex items-center justify-center px-4 py-2.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-400 text-sm">
-                                No join link available
+                                {isCancelled ? 'This meeting has been cancelled' : isCompleted ? 'This meeting has ended' : 'No join link available'}
                             </div>
                         )}
-                        {canDelete && (
+                        {canDelete && !isCancelled && !isCompleted && (
                             <button
                                 onClick={() => onDelete(meeting)}
                                 disabled={deleting}
                                 className="px-4 py-2.5 rounded-lg border border-red-200 dark:border-red-900/40 text-red-600 dark:text-red-300 text-sm font-semibold bg-red-50/70 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 transition disabled:opacity-60 disabled:cursor-not-allowed"
                             >
-                                {deleting ? "Deleting..." : "Delete"}
+                                {deleting ? 'Cancelling...' : 'Cancel meeting'}
                             </button>
                         )}
                         <button
@@ -139,12 +170,21 @@ export default function CustomCalendar() {
     const [currentDate, setCurrentDate] = useState(new Date());
     const [meetings, setMeetings] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [timezone, setTimezone] = useState(getLocalTimezone());
+    const [timezone, setTimezone] = useState('Asia/Kolkata');
     const [showScheduleForm, setShowScheduleForm] = useState(false);
     const [selectedSlot, setSelectedSlot] = useState(null);
     const [selectedMeeting, setSelectedMeeting] = useState(null);
     const [deleting, setDeleting] = useState(false);
+    const [currentTime, setCurrentTime] = useState(new Date());
     const { showToast } = useToast();
+
+    useEffect(() => {
+        const timer = setInterval(() => {
+            setCurrentTime(new Date());
+        }, 30000);
+
+        return () => clearInterval(timer);
+    }, []);
 
     const timezones = getTimezoneList();
     const hours = Array.from({ length: 24 }, (_, i) => i);
@@ -242,49 +282,74 @@ export default function CustomCalendar() {
             await deleteMeeting(meeting._id);
             setSelectedMeeting(null);
             await fetchMeetings();
-            showToast('Meeting deleted successfully', 'success');
+            showToast('Meeting cancelled successfully', 'success');
         } catch (err) {
             const msg = err.response?.data?.message || err.message || 'Unknown error';
-            showToast('Failed to delete meeting: ' + msg, 'error');
+            showToast('Failed to cancel meeting: ' + msg, 'error');
         } finally {
             setDeleting(false);
         }
     };
 
     const getMeetingsForDay = (day) => {
+        const y = day.getFullYear(), m = day.getMonth(), d = day.getDate();
         return meetings.filter(meeting => {
-            const meetingStart = new Date(meeting.startTime);
-            const dayStart = new Date(day);
-            dayStart.setHours(0, 0, 0, 0);
-            const dayEnd = new Date(day);
-            dayEnd.setHours(23, 59, 59, 999);
-
-            return meetingStart >= dayStart && meetingStart <= dayEnd;
+            const p = getPartsInTZ(meeting.startTime, timezone);
+            return p.year === y && p.month === m && p.day === d;
         });
     };
 
     const calculateMeetingPosition = (meeting, slotHeight) => {
-        const start = new Date(meeting.startTime);
-        const end = new Date(meeting.endTime);
-
-        const startHour = start.getHours();
-        const startMinute = start.getMinutes();
-        const endHour = end.getHours();
-        const endMinute = end.getMinutes();
-
-        const startOffset = (startMinute / 60) * slotHeight;
-        const totalMinutes = (endHour * 60 + endMinute) - (startHour * 60 + startMinute);
+        const start = getPartsInTZ(meeting.startTime, timezone);
+        const end = getPartsInTZ(meeting.endTime, timezone);
+        const startOffset = (start.minute / 60) * slotHeight;
+        const totalMinutes = (end.hour * 60 + end.minute) - (start.hour * 60 + start.minute);
         const height = (totalMinutes / 60) * slotHeight;
-
         return {
-            top: startHour * slotHeight + startOffset,
-            height: Math.max(height, 20)
+            top: start.hour * slotHeight + startOffset,
+            height: Math.max(height, 20),
         };
+    };
+
+    const layoutOverlappingMeetings = (dayMeetings, slotHeight) => {
+        if (!dayMeetings.length) return [];
+
+        const items = dayMeetings.map((m, origIdx) => ({
+            origIdx,
+            pos: calculateMeetingPosition(m, slotHeight),
+            col: 0,
+            totalCols: 1,
+        })).sort((a, b) => a.pos.top - b.pos.top);
+
+        const overlaps = (a, b) =>
+            a.pos.top < b.pos.top + b.pos.height && b.pos.top < a.pos.top + a.pos.height;
+
+        const clusters = [];
+        items.forEach(item => {
+            const existing = clusters.find(c => c.some(x => overlaps(x, item)));
+            existing ? existing.push(item) : clusters.push([item]);
+        });
+
+        clusters.forEach(cluster => {
+            const colEnds = [];
+            cluster.forEach(item => {
+                let col = colEnds.findIndex(end => item.pos.top >= end);
+                if (col === -1) { col = colEnds.length; colEnds.push(0); }
+                colEnds[col] = item.pos.top + item.pos.height;
+                item.col = col;
+            });
+            cluster.forEach(item => { item.totalCols = colEnds.length; });
+        });
+
+        const result = new Array(dayMeetings.length);
+        items.forEach(item => { result[item.origIdx] = { col: item.col, totalCols: item.totalCols }; });
+        return result;
     };
 
     const renderWeekView = () => {
         const weekDays = getWeekDays();
         const slotHeight = 48;
+        const todayParts = getPartsInTZ(new Date(), timezone);
 
         return (
             <div className="flex flex-col h-full">
@@ -298,9 +363,10 @@ export default function CustomCalendar() {
                             <div className="text-xs text-gray-500 dark:text-gray-400">
                                 {day.toLocaleDateString('en-US', { weekday: 'short' })}
                             </div>
-                            <div className={`text-lg font-semibold ${day.toDateString() === new Date().toDateString()
-                                ? 'text-blue-600 dark:text-[#6264a7]'
-                                : 'text-gray-900 dark:text-gray-100'
+                            <div className={`text-lg font-semibold ${
+                                day.getFullYear() === todayParts.year && day.getMonth() === todayParts.month && day.getDate() === todayParts.day
+                                    ? 'text-blue-600 dark:text-[#6264a7]'
+                                    : 'text-gray-900 dark:text-gray-100'
                                 }`}>
                                 {day.getDate()}
                             </div>
@@ -320,6 +386,7 @@ export default function CustomCalendar() {
 
                         {weekDays.map((day, dayIdx) => {
                             const dayMeetings = getMeetingsForDay(day);
+                            const overlapLayout = layoutOverlappingMeetings(dayMeetings, slotHeight);
 
                             return (
                                 <div key={dayIdx} className="flex-1 border-l border-gray-200 dark:border-[#4a4a4a] relative">
@@ -333,32 +400,46 @@ export default function CustomCalendar() {
 
                                     {dayMeetings.map((meeting, idx) => {
                                         const pos = calculateMeetingPosition(meeting, slotHeight);
+                                        const { col, totalCols } = overlapLayout[idx];
                                         const ps = getPlatformStyle(meeting.platform);
+                                        const isCancelled = meeting.status === 'cancelled';
+                                        const isCompleted = !isCancelled && new Date(meeting.endTime) < new Date();
+                                        const colW = 100 / totalCols;
+                                        const leftPct = col * colW;
                                         return (
                                             <div
                                                 key={idx}
-                                                className="absolute inset-x-1 rounded px-1 py-0.5 text-xs overflow-hidden cursor-pointer hover:shadow-lg hover:brightness-95 transition"
+                                                className="absolute rounded px-1 py-0.5 text-xs overflow-hidden cursor-pointer transition"
                                                 style={{
                                                     top: `${pos.top}px`,
                                                     height: `${pos.height}px`,
-                                                    backgroundColor: ps.bg,
-                                                    borderLeft: `4px solid ${ps.border}`,
-                                                    color: ps.text,
+                                                    left: `calc(${leftPct}% + 1px)`,
+                                                    width: `calc(${colW}% - 2px)`,
+                                                    backgroundColor: isCancelled ? 'transparent' : ps.bg,
+                                                    borderLeft: isCancelled ? '3px dashed #9ca3af' : `4px solid ${ps.border}`,
+                                                    border: isCancelled ? '1px dashed #9ca3af' : undefined,
+                                                    color: isCancelled ? '#9ca3af' : ps.text,
+                                                    opacity: isCancelled ? 0.4 : isCompleted ? 0.5 : 1,
+                                                    filter: isCancelled ? 'grayscale(1)' : 'none',
+                                                    zIndex: 10 + col,
                                                 }}
                                                 onClick={(e) => {
                                                     e.stopPropagation();
                                                     setSelectedMeeting(meeting);
                                                 }}
                                             >
-                                                <div className="font-medium truncate flex items-center gap-1">
+                                                <div className={`font-medium truncate flex items-center gap-1 ${isCancelled ? 'line-through' : ''}`}>
                                                     {meeting.isRecurring && <span title="Recurring meeting">🔄</span>}
+                                                    {isCancelled && <span title="Cancelled" className="text-[11px]">✕</span>}
+                                                    {isCompleted && <span title="Completed" className="text-[11px]">✓</span>}
                                                     {meeting.title}
                                                 </div>
                                                 {pos.height > 30 && (
                                                     <div className="text-[10px] opacity-75">
                                                         {new Date(meeting.startTime).toLocaleTimeString('en-US', {
                                                             hour: 'numeric',
-                                                            minute: '2-digit'
+                                                            minute: '2-digit',
+                                                            timeZone: timezone,
                                                         })}
                                                     </div>
                                                 )}
@@ -377,6 +458,11 @@ export default function CustomCalendar() {
     const renderDayView = () => {
         const slotHeight = 64;
         const dayMeetings = getMeetingsForDay(currentDate);
+        const tzNow = getPartsInTZ(currentTime, timezone);
+        const isToday = currentDate.getFullYear() === tzNow.year && currentDate.getMonth() === tzNow.month && currentDate.getDate() === tzNow.day;
+        const timeIndicatorPos = isToday
+            ? ((tzNow.hour * 60 + tzNow.minute) / (24 * 60)) * (24 * slotHeight)
+            : null;
 
         return (
             <div className="flex flex-col h-full">
@@ -406,6 +492,16 @@ export default function CustomCalendar() {
                         </div>
 
                         <div className="flex-1 border-l border-gray-200 dark:border-[#4a4a4a] relative">
+                            {isToday && timeIndicatorPos !== null && (
+                                <div
+                                    className="absolute left-0 right-0 z-30 flex items-center pointer-events-none"
+                                    style={{ top: `${timeIndicatorPos}px` }}
+                                >
+                                    <div className="w-3 h-3 rounded-full bg-red-500 shadow-lg border-2 border-white dark:border-[#292929]"></div>
+                                    <div className="flex-1 h-0.5 bg-gradient-to-r from-red-500 to-transparent"></div>
+                                </div>
+                            )}
+
                             {hours.map(hour => (
                                 <div
                                     key={hour}
@@ -414,41 +510,59 @@ export default function CustomCalendar() {
                                 />
                             ))}
 
-                            {dayMeetings.map((meeting, idx) => {
-                                const pos = calculateMeetingPosition(meeting, slotHeight);
-                                const ps = getPlatformStyle(meeting.platform);
-                                return (
-                                    <div
-                                        key={idx}
-                                        className="absolute inset-x-2 rounded px-2 py-1 overflow-hidden cursor-pointer hover:shadow-lg hover:brightness-95 transition"
-                                        style={{
-                                            top: `${pos.top}px`,
-                                            height: `${pos.height}px`,
-                                            backgroundColor: ps.bg,
-                                            borderLeft: `4px solid ${ps.border}`,
-                                            color: ps.text,
-                                        }}
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            setSelectedMeeting(meeting);
-                                        }}
-                                    >
-                                        <div className="font-semibold truncate flex items-center gap-1">
-                                            {meeting.isRecurring && <span title="Recurring meeting">🔄</span>}
-                                            {meeting.title}
+                            {(() => {
+                                const overlapLayout = layoutOverlappingMeetings(dayMeetings, slotHeight);
+                                return dayMeetings.map((meeting, idx) => {
+                                    const pos = calculateMeetingPosition(meeting, slotHeight);
+                                    const { col, totalCols } = overlapLayout[idx];
+                                    const ps = getPlatformStyle(meeting.platform);
+                                    const isCancelled = meeting.status === 'cancelled';
+                                    const isCompleted = !isCancelled && new Date(meeting.endTime) < new Date();
+                                    const colW = 100 / totalCols;
+                                    const leftPct = col * colW;
+                                    return (
+                                        <div
+                                            key={idx}
+                                            className="absolute rounded px-2 py-1 overflow-hidden cursor-pointer transition"
+                                            style={{
+                                                top: `${pos.top}px`,
+                                                height: `${pos.height}px`,
+                                                left: `calc(${leftPct}% + 2px)`,
+                                                width: `calc(${colW}% - 4px)`,
+                                                backgroundColor: isCancelled ? 'transparent' : ps.bg,
+                                                borderLeft: isCancelled ? '3px dashed #9ca3af' : `4px solid ${ps.border}`,
+                                                border: isCancelled ? '1px dashed #9ca3af' : undefined,
+                                                color: isCancelled ? '#9ca3af' : ps.text,
+                                                opacity: isCancelled ? 0.4 : isCompleted ? 0.5 : 1,
+                                                filter: isCancelled ? 'grayscale(1)' : 'none',
+                                                zIndex: 10 + col,
+                                            }}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setSelectedMeeting(meeting);
+                                            }}
+                                        >
+                                            <div className={`font-semibold truncate flex items-center gap-1 ${isCancelled ? 'line-through' : ''}`}>
+                                                {meeting.isRecurring && <span title="Recurring meeting">🔄</span>}
+                                                {isCancelled && <span title="Cancelled" className="text-[11px]">✕</span>}
+                                                {isCompleted && <span title="Completed" className="text-[11px]">✓</span>}
+                                                {meeting.title}
+                                            </div>
+                                            <div className="text-xs opacity-75">
+                                                {new Date(meeting.startTime).toLocaleTimeString('en-US', {
+                                                    hour: 'numeric',
+                                                    minute: '2-digit',
+                                                    timeZone: timezone,
+                                                })} – {new Date(meeting.endTime).toLocaleTimeString('en-US', {
+                                                    hour: 'numeric',
+                                                    minute: '2-digit',
+                                                    timeZone: timezone,
+                                                })}
+                                            </div>
                                         </div>
-                                        <div className="text-xs opacity-75">
-                                            {new Date(meeting.startTime).toLocaleTimeString('en-US', {
-                                                hour: 'numeric',
-                                                minute: '2-digit'
-                                            })} - {new Date(meeting.endTime).toLocaleTimeString('en-US', {
-                                                hour: 'numeric',
-                                                minute: '2-digit'
-                                            })}
-                                        </div>
-                                    </div>
-                                );
-                            })}
+                                    );
+                                });
+                            })()}
                         </div>
                     </div>
                 </div>
@@ -459,6 +573,7 @@ export default function CustomCalendar() {
     const renderMonthView = () => {
         const monthDays = getMonthDays();
         const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        const todayParts = getPartsInTZ(new Date(), timezone);
 
         return (
             <div className="flex flex-col h-full">
@@ -474,7 +589,7 @@ export default function CustomCalendar() {
                     {monthDays.map((day, idx) => {
                         const dayMeetings = getMeetingsForDay(day);
                         const isCurrentMonth = day.getMonth() === currentDate.getMonth();
-                        const isToday = day.toDateString() === new Date().toDateString();
+                        const isToday = day.getFullYear() === todayParts.year && day.getMonth() === todayParts.month && day.getDate() === todayParts.day;
 
                         return (
                             <div
@@ -500,14 +615,20 @@ export default function CustomCalendar() {
                                 <div className="space-y-1">
                                     {dayMeetings.slice(0, 3).map((meeting, mIdx) => {
                                         const ps = getPlatformStyle(meeting.platform);
+                                        const isCancelled = meeting.status === 'cancelled';
+                                        const isCompleted = !isCancelled && new Date(meeting.endTime) < new Date();
                                         return (
                                             <div
                                                 key={mIdx}
-                                                className="text-xs px-1 py-0.5 rounded truncate cursor-pointer hover:brightness-95 transition"
+                                                className="text-xs px-1 py-0.5 rounded truncate cursor-pointer transition"
                                                 style={{
-                                                    backgroundColor: ps.bg,
-                                                    borderLeft: `3px solid ${ps.border}`,
-                                                    color: ps.text,
+                                                    backgroundColor: isCancelled ? 'transparent' : ps.bg,
+                                                    borderLeft: isCancelled ? '2px dashed #9ca3af' : `3px solid ${ps.border}`,
+                                                    border: isCancelled ? '1px dashed #9ca3af' : undefined,
+                                                    color: isCancelled ? '#9ca3af' : ps.text,
+                                                    opacity: isCancelled ? 0.4 : isCompleted ? 0.5 : 1,
+                                                    filter: isCancelled ? 'grayscale(1)' : 'none',
+                                                    textDecoration: isCancelled ? 'line-through' : 'none',
                                                 }}
                                                 onClick={(e) => {
                                                     e.stopPropagation();
@@ -515,9 +636,12 @@ export default function CustomCalendar() {
                                                 }}
                                             >
                                                 {meeting.isRecurring && <span className="mr-1" title="Recurring meeting">🔄</span>}
+                                                {isCancelled && <span className="mr-0.5">✕</span>}
+                                                {isCompleted && <span className="mr-0.5">✓</span>}
                                                 {new Date(meeting.startTime).toLocaleTimeString('en-US', {
                                                     hour: 'numeric',
-                                                    minute: '2-digit'
+                                                    minute: '2-digit',
+                                                    timeZone: timezone,
                                                 })} {meeting.title}
                                             </div>
                                         );
@@ -538,27 +662,27 @@ export default function CustomCalendar() {
 
     return (
         <div className="h-full flex flex-col">
-            <div className="mb-3 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-white dark:bg-[#292929] p-3 rounded-lg border border-gray-200 dark:border-[#3d3d3d]">
-                <div className="flex items-center gap-2">
+            <div className="flex flex-row justify-between items-center gap-2.5 bg-white dark:bg-[#292929] px-3 py-2 border-b border-gray-200 dark:border-[#3d3d3d] shrink-0 overflow-x-auto">
+                <div className="flex items-center gap-2 shrink-0">
                     <button
                         onClick={handlePrevious}
-                        className="px-3 py-1.5 bg-white dark:bg-[#3d3d3d] border border-gray-300 dark:border-[#4a4a4a] rounded hover:bg-gray-50 dark:hover:bg-[#4a4a4a] transition text-gray-700 dark:text-gray-200 font-medium"
+                        className="px-2.5 py-1.5 bg-white dark:bg-[#3d3d3d] border border-gray-300 dark:border-[#4a4a4a] rounded hover:bg-gray-50 dark:hover:bg-[#4a4a4a] transition text-gray-700 dark:text-gray-200 text-sm"
                     >
                         ←
                     </button>
                     <button
                         onClick={handleToday}
-                        className="px-4 py-1.5 bg-blue-600 dark:bg-[#6264a7] text-white rounded hover:bg-blue-700 dark:hover:bg-[#7173b3] transition font-medium"
+                        className="px-3 py-1.5 bg-blue-600 dark:bg-[#6264a7] text-white rounded hover:bg-blue-700 dark:hover:bg-[#7173b3] transition text-sm font-medium"
                     >
                         Today
                     </button>
                     <button
                         onClick={handleNext}
-                        className="px-3 py-1.5 bg-white dark:bg-[#3d3d3d] border border-gray-300 dark:border-[#4a4a4a] rounded hover:bg-gray-50 dark:hover:bg-[#4a4a4a] transition text-gray-700 dark:text-gray-200 font-medium"
+                        className="px-2.5 py-1.5 bg-white dark:bg-[#3d3d3d] border border-gray-300 dark:border-[#4a4a4a] rounded hover:bg-gray-50 dark:hover:bg-[#4a4a4a] transition text-gray-700 dark:text-gray-200 text-sm"
                     >
                         →
                     </button>
-                    <span className="ml-3 text-lg font-semibold text-gray-900 dark:text-gray-100">
+                    <span className="ml-2 text-sm font-semibold text-gray-900 dark:text-gray-100 whitespace-nowrap">
                         {view === 'week'
                             ? `${getWeekDays()[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${getWeekDays()[6].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
                             : view === 'month'
@@ -568,11 +692,11 @@ export default function CustomCalendar() {
                     </span>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 shrink-0">
                     <select
                         value={timezone}
                         onChange={(e) => setTimezone(e.target.value)}
-                        className="px-2 py-1.5 bg-white dark:bg-[#3d3d3d] border border-gray-300 dark:border-[#4a4a4a] rounded text-sm text-gray-700 dark:text-gray-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        className="px-2.5 py-1.5 bg-white dark:bg-[#3d3d3d] border border-gray-300 dark:border-[#4a4a4a] rounded text-sm text-gray-700 dark:text-gray-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     >
                         {timezones.map(tz => (
                             <option key={tz.value} value={tz.value}>
@@ -613,7 +737,7 @@ export default function CustomCalendar() {
                 </div>
             </div>
 
-            <div className="flex-1 bg-white dark:bg-[#292929] rounded-lg border border-gray-200 dark:border-[#3d3d3d] overflow-hidden">
+            <div className="flex-1 min-h-0 bg-white dark:bg-[#292929] overflow-hidden">
                 {loading ? (
                     <div className="text-center py-8 text-gray-500 dark:text-gray-400">
                         Loading calendar...
@@ -644,6 +768,7 @@ export default function CustomCalendar() {
                     onDelete={handleDeleteMeeting}
                     canDelete={selectedMeeting.organizerEmail === user?.email}
                     deleting={deleting}
+                    timezone={timezone}
                 />
             )}
         </div>

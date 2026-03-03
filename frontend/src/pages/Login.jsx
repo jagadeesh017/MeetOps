@@ -36,8 +36,6 @@ export default function Login() {
 
       setToken(res.data.token);
       setUser({ email });
-      
-      // Navigate to dashboard silently (no alert)
       window.location.href = "/dashboard";
     } catch (err) {
       setError(err.response?.data?.message || "Login failed");

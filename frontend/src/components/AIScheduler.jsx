@@ -53,12 +53,11 @@ export default function AIScheduler({ onClose, onMeetingCreated }) {
 
     try {
       const isDeleteIntent = /(delete|cancel|remove|drop|discard)/i.test(userMessage);
-      // Build conversation history for context
+      const isFreshRequest = /\b(schedule|meeting|call|book)\b/i.test(userMessage) && userMessage.trim().split(/\s+/).length >= 4;
       const conversationHistory = messages
         .map((msg) => `${msg.type === "user" ? "User" : "Assistant"}: ${msg.content}`)
         .join("\n");
-      
-      const fullPrompt = conversationHistory ? `${conversationHistory}\nUser: ${userMessage}` : userMessage;
+      const fullPrompt = (conversationHistory && !isFreshRequest) ? `${conversationHistory}\nUser: ${userMessage}` : userMessage;
 
       const response = await fetch(`http://localhost:5000/api/ai/${isDeleteIntent ? "delete-meeting" : "schedule-meeting"}`, {
         method: "POST",
@@ -81,13 +80,28 @@ export default function AIScheduler({ onClose, onMeetingCreated }) {
         return;
       }
 
+      if (data.availableSlots) {
+        const fmt = (s) => new Date(s).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+        setMessages((prev) => [
+          ...prev,
+          {
+            type: "bot",
+            content: "Here are your next 4 available slots:",
+            timestamp: new Date(),
+            slots: data.availableSlots.map(fmt),
+          },
+        ]);
+        setLoading(false);
+        return;
+      }
+
       if (data.deletedMeeting) {
         const deleted = data.deletedMeeting;
         setMessages((prev) => [
           ...prev,
           {
             type: "bot",
-            content: `Done. I've deleted "${deleted.title}" scheduled for ${new Date(deleted.startTime).toLocaleString()}.`,
+            content: `Done. I've cancelled "${deleted.title}" scheduled for ${new Date(deleted.startTime).toLocaleString()}.`,
             timestamp: new Date(),
           },
         ]);
@@ -139,7 +153,6 @@ export default function AIScheduler({ onClose, onMeetingCreated }) {
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-md flex items-center justify-center z-50 p-4">
       <div className="w-full max-w-2xl h-[80vh] max-h-screen bg-white dark:bg-[#1a1a1a] rounded-2xl shadow-2xl overflow-hidden flex flex-col">
-        {/* Header */}
         <div className="bg-white dark:bg-[#1f1f1f] px-6 py-4 flex justify-between items-center shrink-0 border-b border-gray-200 dark:border-[#3a3a3a]">
           <div>
             <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
@@ -160,8 +173,7 @@ export default function AIScheduler({ onClose, onMeetingCreated }) {
           </button>
         </div>
 
-        {/* Chat Messages Area */}
-        <div className="flex-1 overflow-y-auto p-6 bg-linear-to-b from-gray-50 to-white dark:from-[#2a2a2a] dark:to-[#1a1a1a] space-y-4 relative">
+        <div className="flex-1 overflow-y-auto p-6 bg-linear-to-b from-white to-gray-50 dark:from-[#252525] dark:to-[#1f1f1f] space-y-4 relative">
           {messages.map((message, idx) => (
             <div
               key={idx}
@@ -170,11 +182,21 @@ export default function AIScheduler({ onClose, onMeetingCreated }) {
               <div
                 className={`max-w-xs lg:max-w-md xl:max-w-lg ${
                   message.type === "user"
-                    ? "bg-blue-600 text-white rounded-3xl rounded-tr-sm px-5 py-3 shadow-md"
-                    : "bg-gray-200 dark:bg-[#3a3a3a] text-gray-900 dark:text-white rounded-3xl rounded-tl-sm px-5 py-3"
+                    ? "bg-blue-600 hover:bg-blue-700 text-white rounded-3xl rounded-tr-sm px-5 py-3 shadow-md transition"
+                    : "bg-gray-100 dark:bg-[#333333] text-gray-900 dark:text-gray-50 rounded-3xl rounded-tl-sm px-5 py-3 shadow-sm"
                 }`}
               >
                 <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
+                {message.slots && (
+                  <div className="mt-3 space-y-2">
+                    {message.slots.map((slot, i) => (
+                      <div key={i} className="flex items-center gap-2 bg-white/10 rounded-lg px-3 py-2 text-sm font-medium">
+                        <span className="w-5 h-5 flex items-center justify-center bg-white/20 rounded-full text-xs font-bold shrink-0">{i + 1}</span>
+                        {slot}
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {message.meeting && (
                   <div className="mt-4 pt-4 border-t border-white/20 space-y-3">
                     <div className="bg-white/10 backdrop-blur-sm rounded-lg p-3">
@@ -234,10 +256,10 @@ export default function AIScheduler({ onClose, onMeetingCreated }) {
 
           {loading && (
             <div className="flex justify-start">
-              <div className="bg-gray-200 dark:bg-[#3a3a3a] rounded-3xl rounded-tl-sm px-5 py-3 flex gap-2">
-                <div className="w-2 h-2 bg-gray-600 dark:bg-gray-400 rounded-full animate-bounce"></div>
-                <div className="w-2 h-2 bg-gray-600 dark:bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
-                <div className="w-2 h-2 bg-gray-600 dark:bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.4s'}}></div>
+              <div className="bg-gray-100 dark:bg-[#333333] rounded-3xl rounded-tl-sm px-5 py-3 flex gap-2">
+                <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"></div>
+                <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
+                <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{animationDelay: '0.4s'}}></div>
               </div>
             </div>
           )}
@@ -245,7 +267,6 @@ export default function AIScheduler({ onClose, onMeetingCreated }) {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Input Area */}
         <div className="shrink-0 bg-white dark:bg-[#2a2a2a] border-t border-gray-200 dark:border-[#3a3a3a] p-4">
           <form onSubmit={handleSendMessage} className="flex gap-3">
             <input
