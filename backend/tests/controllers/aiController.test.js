@@ -431,7 +431,7 @@ describe('AI Controller', () => {
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.json).toHaveBeenCalledWith({
         success: false,
-        message: 'Please specify which meeting to delete'
+        message: 'Please specify which meeting to cancel'
       });
     });
 
@@ -444,20 +444,26 @@ describe('AI Controller', () => {
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.json).toHaveBeenCalledWith({
         success: false,
-        message: 'Please tell me which meeting to delete.'
+        message: 'Please tell me which meeting to cancel.'
       });
     });
 
-    it('should return 400 if no ID or title provided', async () => {
+    it('should return 404 if no ID or title provided', async () => {
       Employee.findById.mockResolvedValue(mockUser);
       req.body = { prompt: 'delete meeting' };
+      
+      Meeting.find.mockReturnValue({
+        sort: jest.fn().mockReturnValue({
+          limit: jest.fn().mockResolvedValue([])
+        })
+      });
 
       await aiController.deleteFromPrompt(req, res);
 
-      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.status).toHaveBeenCalledWith(404);
       expect(res.json).toHaveBeenCalledWith({
         success: false,
-        message: 'Please provide the meeting ID or title in quotes.'
+        message: "No matching meeting found. Try specifying the time (e.g. 'cancel meet at 3pm today'), attendee name ('cancel meet with john'), or put the title in quotes."
       });
     });
 
@@ -474,7 +480,7 @@ describe('AI Controller', () => {
       };
 
       Meeting.findById.mockResolvedValue(mockMeeting);
-      Meeting.deleteOne.mockResolvedValue({});
+      Meeting.findByIdAndUpdate.mockResolvedValue({});
       zoomService.deleteZoomMeeting.mockResolvedValue({ success: true });
 
       await aiController.deleteFromPrompt(req, res);
@@ -482,7 +488,7 @@ describe('AI Controller', () => {
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({
         success: true,
-        message: 'Meeting deleted successfully',
+        message: 'Meeting cancelled successfully',
         deletedMeeting: expect.any(Object)
       });
     });
@@ -518,7 +524,7 @@ describe('AI Controller', () => {
       expect(res.status).toHaveBeenCalledWith(403);
       expect(res.json).toHaveBeenCalledWith({
         success: false,
-        message: 'Only organizer can delete'
+        message: 'Only the organizer can cancel this meeting'
       });
     });
 
@@ -535,11 +541,9 @@ describe('AI Controller', () => {
       };
 
       Meeting.find.mockReturnValue({
-        sort: jest.fn().mockReturnValue({
-          limit: jest.fn().mockResolvedValue([mockMeeting])
-        })
+        sort: jest.fn().mockResolvedValue([mockMeeting])
       });
-      Meeting.deleteOne.mockResolvedValue({});
+      Meeting.findByIdAndUpdate.mockResolvedValue({});
       googleMeetService.deleteGoogleMeetEvent.mockResolvedValue({ success: true });
 
       await aiController.deleteFromPrompt(req, res);
@@ -547,7 +551,7 @@ describe('AI Controller', () => {
       expect(res.status).toHaveBeenCalledWith(200);
       expect(res.json).toHaveBeenCalledWith({
         success: true,
-        message: 'Meeting deleted successfully',
+        message: 'Meeting cancelled successfully',
         deletedMeeting: expect.any(Object)
       });
     });
@@ -556,22 +560,21 @@ describe('AI Controller', () => {
       Employee.findById.mockResolvedValue(mockUser);
       req.body = { prompt: 'cancel "Team Meeting"' };
 
+      const mockMeetings = [
+        { _id: 'meeting1', title: 'Team Meeting', startTime: new Date() },
+        { _id: 'meeting2', title: 'Team Meeting', startTime: new Date() }
+      ];
+
       Meeting.find.mockReturnValue({
-        sort: jest.fn().mockReturnValue({
-          limit: jest.fn().mockResolvedValue([
-            { _id: 'meeting1', title: 'Team Meeting' },
-            { _id: 'meeting2', title: 'Team Meeting' }
-          ])
-        })
+        sort: jest.fn().mockResolvedValue(mockMeetings)
       });
 
       await aiController.deleteFromPrompt(req, res);
 
       expect(res.status).toHaveBeenCalledWith(409);
-      expect(res.json).toHaveBeenCalledWith({
-        success: false,
-        message: 'Multiple meetings match. Please provide the meeting ID.'
-      });
+      expect(res.json).toHaveBeenCalled();
+      expect(res.json.mock.calls[0][0].success).toBe(false);
+      expect(res.json.mock.calls[0][0].message).toContain('Found 2 matching meetings');
     });
 
     it('should handle zoom cancellation error', async () => {
@@ -594,7 +597,7 @@ describe('AI Controller', () => {
 
       await aiController.deleteFromPrompt(req, res);
 
-      expect(res.status).toHaveBeenCalledWith(502);
+      expect(res.status).toHaveBeenCalledWith(500);
       expect(res.json).toHaveBeenCalledWith({
         success: false,
         message: 'Zoom API error'

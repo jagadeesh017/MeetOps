@@ -282,14 +282,14 @@ describe('AI Scheduling Service', () => {
       const nearTime = new Date(Date.now() + 15 * 60000); // 15 minutes from now
 
       expect(() => schedulingService.validateMeetingTime(nearTime))
-        .toThrow('Meeting must be scheduled at least 30 minutes from now');
+          .toThrow('Meetings must be scheduled at least 30 minutes from now');
     });
 
     it('should throw error for past time', () => {
       const pastTime = new Date(Date.now() - 60 * 60000); // 1 hour ago
 
       expect(() => schedulingService.validateMeetingTime(pastTime))
-        .toThrow('Meeting must be scheduled at least 30 minutes from now');
+          .toThrow('That time is in the past');
     });
   });
 
