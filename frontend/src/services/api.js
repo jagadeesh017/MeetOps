@@ -24,8 +24,8 @@ export const getMeetings = (userEmail) => apiCall('get', `/meetings?userEmail=${
 export const createMeeting = (meetingData) => apiCall('post', '/meetings', meetingData);
 export const updateMeeting = (meetingId, data) => apiCall('put', `/meetings/${meetingId}`, data);
 export const deleteMeeting = (meetingId) => apiCall('delete', `/meetings/${meetingId}`);
-export const checkAttendeeAvailability = (attendees, startTime, endTime) =>
-    apiCall('post', '/meetings/check-availability', { attendees, startTime, endTime });
+export const checkAttendeeAvailability = (attendees, startTime, endTime, excludeMeetingId = null) =>
+    apiCall('post', '/meetings/check-availability', { attendees, startTime, endTime, excludeMeetingId });
 export const disconnectIntegration = (platform) => apiCall('post', '/integrations/disconnect', { platform });
 
 export default api;

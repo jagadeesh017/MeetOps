@@ -294,7 +294,8 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
         const { start, end } = getDateTimes();
         try {
             const result = await checkAttendeeAvailability(
-                attendees.map(a => ({ name: a.name, email: a.email })), start.toISOString(), end.toISOString()
+                attendees.map(a => ({ name: a.name, email: a.email })), start.toISOString(), end.toISOString(),
+                isEditMode ? editMeeting._id : null
             );
             if (result.available) {
                 setBusyAttendees([]);
@@ -513,7 +514,7 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
                     {!successMeeting && (
                         <button onClick={handleSubmit} disabled={loading}
                             className="px-4 py-2 text-sm font-semibold rounded-lg bg-blue-600 dark:bg-[#6264a7] text-white shadow-md hover:bg-blue-700 dark:hover:bg-[#6b6db2] transition disabled:opacity-50 disabled:cursor-not-allowed">
-                            {loading ? (isEditMode ? 'Updating...' : 'Sending...') : (isEditMode ? 'Update' : 'Send')}
+                            {loading ? (isEditMode ? 'Updating...' : 'Sending...') : (isEditMode ? 'Update' : 'Schedule')}
                         </button>
                     )}
                 </div>

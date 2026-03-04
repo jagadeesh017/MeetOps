@@ -135,7 +135,7 @@ function EventDetailModal({ meeting, onClose, onDelete, onEdit, canDelete, delet
                                 className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-white font-semibold text-sm transition hover:brightness-95 focus:outline-none focus:ring-2 focus:ring-offset-2"
                                 style={{ background: cfg.accent }}
                             >
-                                Join {cfg.label}
+                                Join
                             </a>
                         ) : (
                             <div className="flex-1 flex items-center justify-center px-4 py-2.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-400 text-sm">
@@ -148,7 +148,7 @@ function EventDetailModal({ meeting, onClose, onDelete, onEdit, canDelete, delet
                                     onClick={() => onEdit(meeting)}
                                     className="px-4 py-2.5 rounded-lg border border-blue-200 dark:border-blue-900/40 text-blue-600 dark:text-blue-300 text-sm font-semibold bg-blue-50/70 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition"
                                 >
-                                    ✏️ Edit
+                                    Edit
                                 </button>
                                 <button
                                     onClick={() => onDelete(meeting)}
@@ -378,8 +378,8 @@ export default function CustomCalendar() {
                                 {day.toLocaleDateString('en-US', { weekday: 'short' })}
                             </div>
                             <div className={`text-lg font-semibold ${day.getFullYear() === todayParts.year && day.getMonth() === todayParts.month && day.getDate() === todayParts.day
-                                    ? 'text-blue-600 dark:text-[#6264a7]'
-                                    : 'text-gray-900 dark:text-gray-100'
+                                ? 'text-blue-600 dark:text-[#6264a7]'
+                                : 'text-gray-900 dark:text-gray-100'
                                 }`}>
                                 {day.getDate()}
                             </div>
@@ -428,12 +428,13 @@ export default function CustomCalendar() {
                                                     height: `${pos.height}px`,
                                                     left: `calc(${leftPct}% + 1px)`,
                                                     width: `calc(${colW}% - 2px)`,
-                                                    backgroundColor: isCancelled ? 'transparent' : ps.bg,
-                                                    borderLeft: isCancelled ? '3px dashed #9ca3af' : `4px solid ${ps.border}`,
+                                                    backgroundColor: isCancelled ? 'transparent' : isCompleted ? `color-mix(in srgb, ${ps.bg} 60%, transparent)` : ps.bg,
+                                                    borderLeft: isCancelled ? '3px dashed #9ca3af' : isCompleted ? `4px solid color-mix(in srgb, ${ps.border} 50%, #9ca3af)` : `4px solid ${ps.border}`,
                                                     border: isCancelled ? '1px dashed #9ca3af' : undefined,
-                                                    color: isCancelled ? '#9ca3af' : ps.text,
-                                                    opacity: isCancelled ? 0.4 : isCompleted ? 0.5 : 1,
-                                                    filter: isCancelled ? 'grayscale(1)' : 'none',
+                                                    color: isCancelled ? '#9ca3af' : isCompleted ? `color-mix(in srgb, ${ps.text} 60%, #9ca3af)` : ps.text,
+                                                    opacity: isCancelled ? 0.4 : 1,
+                                                    filter: isCancelled ? 'grayscale(1)' : isCompleted ? 'saturate(0.4)' : 'none',
+                                                    backgroundImage: isCompleted ? 'repeating-linear-gradient(135deg, transparent, transparent 4px, rgba(156,163,175,0.1) 4px, rgba(156,163,175,0.1) 6px)' : 'none',
                                                     zIndex: 10 + col,
                                                 }}
                                                 onClick={(e) => {
@@ -542,12 +543,13 @@ export default function CustomCalendar() {
                                                 height: `${pos.height}px`,
                                                 left: `calc(${leftPct}% + 2px)`,
                                                 width: `calc(${colW}% - 4px)`,
-                                                backgroundColor: isCancelled ? 'transparent' : ps.bg,
-                                                borderLeft: isCancelled ? '3px dashed #9ca3af' : `4px solid ${ps.border}`,
+                                                backgroundColor: isCancelled ? 'transparent' : isCompleted ? `color-mix(in srgb, ${ps.bg} 60%, transparent)` : ps.bg,
+                                                borderLeft: isCancelled ? '3px dashed #9ca3af' : isCompleted ? `4px solid color-mix(in srgb, ${ps.border} 50%, #9ca3af)` : `4px solid ${ps.border}`,
                                                 border: isCancelled ? '1px dashed #9ca3af' : undefined,
-                                                color: isCancelled ? '#9ca3af' : ps.text,
-                                                opacity: isCancelled ? 0.4 : isCompleted ? 0.5 : 1,
-                                                filter: isCancelled ? 'grayscale(1)' : 'none',
+                                                color: isCancelled ? '#9ca3af' : isCompleted ? `color-mix(in srgb, ${ps.text} 60%, #9ca3af)` : ps.text,
+                                                opacity: isCancelled ? 0.4 : 1,
+                                                filter: isCancelled ? 'grayscale(1)' : isCompleted ? 'saturate(0.4)' : 'none',
+                                                backgroundImage: isCompleted ? 'repeating-linear-gradient(135deg, transparent, transparent 4px, rgba(156,163,175,0.1) 4px, rgba(156,163,175,0.1) 6px)' : 'none',
                                                 zIndex: 10 + col,
                                             }}
                                             onClick={(e) => {
@@ -635,12 +637,13 @@ export default function CustomCalendar() {
                                                 key={mIdx}
                                                 className="text-xs px-1 py-0.5 rounded truncate cursor-pointer transition"
                                                 style={{
-                                                    backgroundColor: isCancelled ? 'transparent' : ps.bg,
-                                                    borderLeft: isCancelled ? '2px dashed #9ca3af' : `3px solid ${ps.border}`,
+                                                    backgroundColor: isCancelled ? 'transparent' : isCompleted ? `color-mix(in srgb, ${ps.bg} 60%, transparent)` : ps.bg,
+                                                    borderLeft: isCancelled ? '2px dashed #9ca3af' : isCompleted ? `3px solid color-mix(in srgb, ${ps.border} 50%, #9ca3af)` : `3px solid ${ps.border}`,
                                                     border: isCancelled ? '1px dashed #9ca3af' : undefined,
-                                                    color: isCancelled ? '#9ca3af' : ps.text,
-                                                    opacity: isCancelled ? 0.4 : isCompleted ? 0.5 : 1,
-                                                    filter: isCancelled ? 'grayscale(1)' : 'none',
+                                                    color: isCancelled ? '#9ca3af' : isCompleted ? `color-mix(in srgb, ${ps.text} 60%, #9ca3af)` : ps.text,
+                                                    opacity: isCancelled ? 0.4 : 1,
+                                                    filter: isCancelled ? 'grayscale(1)' : isCompleted ? 'saturate(0.4)' : 'none',
+                                                    backgroundImage: isCompleted ? 'repeating-linear-gradient(135deg, transparent, transparent 4px, rgba(156,163,175,0.1) 4px, rgba(156,163,175,0.1) 6px)' : 'none',
                                                     textDecoration: isCancelled ? 'line-through' : 'none',
                                                 }}
                                                 onClick={(e) => {
