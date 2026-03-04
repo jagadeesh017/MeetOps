@@ -68,7 +68,7 @@ describe('AI Controller', () => {
     it('should handle AI parse error for non-meeting requests', async () => {
       Employee.findById.mockResolvedValue(mockUser);
       req.body = { prompt: 'what is the weather today?' };
-      
+
       aiService.parseMeetingPrompt.mockRejectedValue(
         new Error("I'm specifically designed to help schedule meetings")
       );
@@ -85,7 +85,7 @@ describe('AI Controller', () => {
     it('should return 400 if meeting request is false', async () => {
       Employee.findById.mockResolvedValue(mockUser);
       req.body = { prompt: 'hello' };
-      
+
       aiService.parseMeetingPrompt.mockResolvedValue({
         isMeetingRequest: false
       });
@@ -102,7 +102,7 @@ describe('AI Controller', () => {
     it('should ask for platform if missing', async () => {
       Employee.findById.mockResolvedValue(mockUser);
       req.body = { prompt: 'schedule meeting with john' };
-      
+
       aiService.parseMeetingPrompt.mockResolvedValue({
         title: 'Meeting',
         attendees: ['john'],
@@ -123,7 +123,7 @@ describe('AI Controller', () => {
     it('should ask for attendees if missing', async () => {
       Employee.findById.mockResolvedValue(mockUser);
       req.body = { prompt: 'schedule zoom meeting tomorrow' };
-      
+
       aiService.parseMeetingPrompt.mockResolvedValue({
         title: 'Meeting',
         description: 'NEEDS_ATTENDEES',
@@ -144,7 +144,7 @@ describe('AI Controller', () => {
     it('should ask for time if missing', async () => {
       Employee.findById.mockResolvedValue(mockUser);
       req.body = { prompt: 'schedule zoom meeting with john' };
-      
+
       aiService.parseMeetingPrompt.mockResolvedValue({
         title: 'Meeting',
         attendees: ['john'],
@@ -168,7 +168,7 @@ describe('AI Controller', () => {
         zoomConnected: false
       });
       req.body = { prompt: 'schedule zoom meeting with john tomorrow' };
-      
+
       aiService.parseMeetingPrompt.mockResolvedValue({
         title: 'Meeting',
         attendees: ['john'],
@@ -191,7 +191,7 @@ describe('AI Controller', () => {
         googleConnected: false
       });
       req.body = { prompt: 'schedule google meet with john tomorrow' };
-      
+
       aiService.parseMeetingPrompt.mockResolvedValue({
         title: 'Meeting',
         attendees: ['john'],
@@ -211,7 +211,7 @@ describe('AI Controller', () => {
     it('should create meeting successfully', async () => {
       Employee.findById.mockResolvedValue(mockUser);
       req.body = { prompt: 'schedule zoom meeting with john tomorrow at 3pm' };
-      
+
       aiService.parseMeetingPrompt.mockResolvedValue({
         title: 'Meeting with john',
         attendees: ['john'],
@@ -242,7 +242,7 @@ describe('AI Controller', () => {
     it('should handle scheduling errors', async () => {
       Employee.findById.mockResolvedValue(mockUser);
       req.body = { prompt: 'schedule zoom meeting with john tomorrow' };
-      
+
       aiService.parseMeetingPrompt.mockResolvedValue({
         title: 'Meeting',
         attendees: ['john'],
@@ -268,7 +268,7 @@ describe('AI Controller', () => {
     it('should infer platform from prompt', async () => {
       Employee.findById.mockResolvedValue(mockUser);
       req.body = { prompt: 'zoom meeting with john tomorrow at 3pm' };
-      
+
       aiService.parseMeetingPrompt.mockResolvedValue({
         title: 'Meeting',
         attendees: ['john'],
@@ -334,7 +334,7 @@ describe('AI Controller', () => {
 
     it('should handle errors', async () => {
       req.body = { attendees: ['user@example.com'] };
-      
+
       schedulingService.getSuggestedTimeSlots.mockRejectedValue(
         new Error('Database error')
       );
@@ -386,7 +386,7 @@ describe('AI Controller', () => {
 
     it('should handle analysis errors', async () => {
       req.body = { prompt: 'test' };
-      
+
       aiService.parseMeetingPrompt.mockRejectedValue(new Error('Parse error'));
 
       await aiController.analyzeRequest(req, res);
@@ -451,7 +451,7 @@ describe('AI Controller', () => {
     it('should return 404 if no ID or title provided', async () => {
       Employee.findById.mockResolvedValue(mockUser);
       req.body = { prompt: 'delete meeting' };
-      
+
       Meeting.find.mockReturnValue({
         sort: jest.fn().mockReturnValue({
           limit: jest.fn().mockResolvedValue([])
@@ -504,7 +504,7 @@ describe('AI Controller', () => {
       expect(res.status).toHaveBeenCalledWith(404);
       expect(res.json).toHaveBeenCalledWith({
         success: false,
-        message: 'Meeting not found'
+        message: expect.stringContaining('No matching meeting found')
       });
     });
 

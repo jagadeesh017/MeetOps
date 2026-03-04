@@ -91,15 +91,14 @@ describe('Auth Middleware', () => {
     expect(next).toHaveBeenCalled();
   });
 
-  it('should use default secret if JWT_SECRET not set', () => {
+  it('should return 401 if JWT_SECRET not set', () => {
     delete process.env.JWT_SECRET;
-    const mockDecoded = { id: '789' };
     req.headers.authorization = 'Bearer token';
-    jwt.verify.mockReturnValue(mockDecoded);
+    jwt.verify.mockImplementation(() => { throw new Error('secretOrPublicKey must have a value'); });
 
     authMiddleware(req, res, next);
 
-    expect(jwt.verify).toHaveBeenCalledWith('token', 'secretkey');
-    expect(next).toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
   });
 });

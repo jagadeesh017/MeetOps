@@ -10,59 +10,64 @@ async function refreshZoomToken(refreshToken) {
   return response.data;
 }
 
-async function createZoomMeeting(meetingData, accessToken, refreshToken) {
+function buildZoomPayload({ title, startTime, endTime, timezone, description }) {
+  const payload = {};
+  if (title) payload.topic = title;
+  if (startTime) payload.start_time = new Date(startTime).toISOString();
+  if (startTime && endTime) payload.duration = Math.round((new Date(endTime) - new Date(startTime)) / 60000);
+  if (timezone) payload.timezone = timezone || 'UTC';
+  if (description !== undefined) payload.agenda = description || '';
+  payload.settings = { host_video: true, participant_video: true, join_before_host: true, waiting_room: false };
+  return payload;
+}
+
+async function zoomRequestWithRetry(method, url, accessToken, refreshToken, data = null) {
+  const makeRequest = (token) => {
+    const headers = { Authorization: `Bearer ${token}` };
+    if (data) headers['Content-Type'] = 'application/json';
+    return data ? axios[method](url, data, { headers }) : axios[method](url, { headers });
+  };
+
   try {
-    const { title, startTime, endTime, timezone, description } = meetingData;
-    const durationMinutes = Math.round((new Date(endTime) - new Date(startTime)) / 60000);
-    const payload = {
-      topic: title,
-      type: 2,
-      start_time: new Date(startTime).toISOString(),
-      duration: durationMinutes,
-      timezone: timezone || 'UTC',
-      agenda: description || '',
-      settings: {
-        host_video: true,
-        participant_video: true,
-        join_before_host: true,
-        waiting_room: false,
-        auto_recording: 'none',
-        email_notification: true,
-        send_email_notification: true,
-      },
-    };
-
-    const response = await axios.post('https://api.zoom.us/v2/users/me/meetings', payload, {
-      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-    });
-
-    const { join_url, id } = response.data;
-    return { success: true, meetingUrl: join_url, meetingId: String(id), platform: 'zoom' };
+    const response = await makeRequest(accessToken);
+    return { success: true, data: response.data };
   } catch (error) {
-    return { success: false, error: error.response?.data?.message || error.message, meetingUrl: null, status: error.response?.status };
+    const errMsg = error.response?.data?.message || error.message;
+    const errStatus = error.response?.status;
+    if (errStatus === 401 && refreshToken) {
+      try {
+        const refreshed = await refreshZoomToken(refreshToken);
+        const response = await makeRequest(refreshed.access_token);
+        return { success: true, data: response.data, newTokens: refreshed };
+      } catch {
+        return { success: false, error: errMsg || "Token refresh failed", status: 401 };
+      }
+    }
+    return { success: false, error: errMsg, status: errStatus };
   }
+}
+
+async function createZoomMeeting(meetingData, accessToken, refreshToken) {
+  const payload = buildZoomPayload(meetingData);
+  payload.type = 2;
+  payload.settings.auto_recording = 'none';
+  payload.settings.email_notification = true;
+  payload.settings.send_email_notification = true;
+
+  const result = await zoomRequestWithRetry('post', 'https://api.zoom.us/v2/users/me/meetings', accessToken, refreshToken, payload);
+  if (!result.success) return { ...result, meetingUrl: null };
+
+  const { join_url, id } = result.data;
+  return { success: true, meetingUrl: join_url, meetingId: String(id), platform: 'zoom', newTokens: result.newTokens };
+}
+
+async function updateZoomMeeting(meetingId, updateData, accessToken, refreshToken) {
+  const payload = buildZoomPayload(updateData);
+  return zoomRequestWithRetry('patch', `https://api.zoom.us/v2/meetings/${meetingId}`, accessToken, refreshToken, payload);
 }
 
 async function deleteZoomMeeting(meetingId, accessToken, refreshToken) {
-  try {
-    await axios.delete(`https://api.zoom.us/v2/meetings/${meetingId}`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    return { success: true };
-  } catch (error) {
-    if (error.response?.status === 401 && refreshToken) {
-      try {
-        const refreshed = await refreshZoomToken(refreshToken);
-        await axios.delete(`https://api.zoom.us/v2/meetings/${meetingId}`, {
-          headers: { Authorization: `Bearer ${refreshed.access_token}` },
-        });
-        return { success: true, newTokens: refreshed };
-      } catch {
-        return { success: false, error: "Token refresh failed", status: 401 };
-      }
-    }
-    return { success: false, error: error.response?.data?.message || error.message, status: error.response?.status };
-  }
+  return zoomRequestWithRetry('delete', `https://api.zoom.us/v2/meetings/${meetingId}`, accessToken, refreshToken);
 }
 
-module.exports = { createZoomMeeting, refreshZoomToken, deleteZoomMeeting };
+module.exports = { createZoomMeeting, refreshZoomToken, updateZoomMeeting, deleteZoomMeeting };

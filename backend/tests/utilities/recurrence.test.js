@@ -39,7 +39,7 @@ describe('Recurrence Utility', () => {
       });
 
       expect(slots).toHaveLength(5);
-      
+
       // Check first slot
       expect(slots[0].startTime.toISOString()).toBe('2026-03-15T10:00:00.000Z');
       expect(slots[0].endTime.toISOString()).toBe('2026-03-15T11:00:00.000Z');
@@ -60,7 +60,7 @@ describe('Recurrence Utility', () => {
       });
 
       expect(slots).toHaveLength(4);
-      
+
       // Check first slot
       expect(slots[0].startTime.toISOString()).toBe('2026-03-15T10:00:00.000Z');
 
@@ -79,7 +79,7 @@ describe('Recurrence Utility', () => {
       });
 
       expect(slots).toHaveLength(3);
-      
+
       // Check first slot
       expect(slots[0].startTime.toISOString()).toBe('2026-03-15T10:00:00.000Z');
 
@@ -103,7 +103,7 @@ describe('Recurrence Utility', () => {
       // Should generate for approximately Mar 15-18 (around 4-5 slots)
       expect(slots.length).toBeGreaterThan(0);
       expect(slots.length).toBeLessThanOrEqual(10);
-      
+
       // First slot should be the base start time
       expect(slots[0].startTime.toISOString()).toBe(baseStartTime.toISOString());
     });
@@ -136,8 +136,8 @@ describe('Recurrence Utility', () => {
         // No count specified
       });
 
-      // Should default to 365
-      expect(slots).toHaveLength(365);
+      // Should default to 52
+      expect(slots).toHaveLength(52);
     });
 
     it('should maintain time duration across recurrences', () => {

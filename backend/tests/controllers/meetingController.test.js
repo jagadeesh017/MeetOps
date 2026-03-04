@@ -49,16 +49,22 @@ describe('Meeting Controller', () => {
       });
 
       req.query = {};
+      req.user = { id: 'user123', email: 'user@example.com' };
 
       await meetingController.getMeetings(req, res);
 
-      expect(Meeting.find).toHaveBeenCalledWith({});
+      expect(Meeting.find).toHaveBeenCalledWith({
+        $or: [
+          { organizerEmail: 'user@example.com' },
+          { 'attendees.email': 'user@example.com' }
+        ]
+      });
       expect(res.json).toHaveBeenCalledWith(mockMeetings);
     });
 
     it('should filter meetings by userEmail', async () => {
       const mockMeetings = [{ title: 'Meeting 1' }];
-      
+
       Meeting.find.mockReturnValue({
         sort: jest.fn().mockResolvedValue(mockMeetings)
       });
@@ -77,6 +83,7 @@ describe('Meeting Controller', () => {
     });
 
     it('should handle errors', async () => {
+      req.user = { id: 'user123', email: 'user@example.com' };
       Meeting.find.mockReturnValue({
         sort: jest.fn().mockRejectedValue(new Error('DB error'))
       });

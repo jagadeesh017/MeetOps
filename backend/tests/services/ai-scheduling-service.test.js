@@ -127,7 +127,7 @@ describe('AI Scheduling Service', () => {
 
     it('should find next available slot when preferred is taken', async () => {
       Employee.find = jest.fn().mockResolvedValue([{ email: 'user@example.com' }]);
-      
+
       // First call returns conflict, second returns no conflict
       Meeting.findOne = jest.fn()
         .mockResolvedValueOnce({ _id: 'conflict' })
@@ -282,14 +282,14 @@ describe('AI Scheduling Service', () => {
       const nearTime = new Date(Date.now() + 15 * 60000); // 15 minutes from now
 
       expect(() => schedulingService.validateMeetingTime(nearTime))
-          .toThrow('Meetings must be scheduled at least 30 minutes from now');
+        .toThrow('Meetings must be scheduled at least 30 minutes from now');
     });
 
     it('should throw error for past time', () => {
       const pastTime = new Date(Date.now() - 60 * 60000); // 1 hour ago
 
       expect(() => schedulingService.validateMeetingTime(pastTime))
-          .toThrow('That time is in the past');
+        .toThrow('That time is in the past');
     });
   });
 
@@ -320,12 +320,6 @@ describe('AI Scheduling Service', () => {
         select: jest.fn().mockResolvedValue([
           { email: 'attendee@example.com', name: 'Attendee' }
         ])
-      });
-      Employee.findOne = jest.fn().mockReturnValue({
-        select: jest.fn().mockResolvedValue({
-          email: 'attendee@example.com',
-          name: 'Attendee'
-        })
       });
       Meeting.findOne = jest.fn().mockResolvedValue(null);
     });
@@ -386,7 +380,7 @@ describe('AI Scheduling Service', () => {
       expect(googleMeetService.createGoogleMeetMeeting).toHaveBeenCalled();
     });
 
-    it('should refresh Zoom token when 401 error occurs', async () => {
+    it('should handle Zoom token refresh via newTokens', async () => {
       const mockMeeting = {
         _id: 'meeting123',
         save: jest.fn().mockResolvedValue(true)
@@ -394,17 +388,11 @@ describe('AI Scheduling Service', () => {
 
       Meeting.mockImplementation(() => mockMeeting);
 
-      zoomService.createZoomMeeting = jest.fn()
-        .mockResolvedValueOnce({ success: false, status: 401, error: 'Invalid token' })
-        .mockResolvedValueOnce({
-          success: true,
-          meetingUrl: 'https://zoom.us/j/123456789',
-          meetingId: '123456789'
-        });
-
-      zoomService.refreshZoomToken = jest.fn().mockResolvedValue({
-        access_token: 'new-zoom-token',
-        refresh_token: 'new-zoom-refresh'
+      zoomService.createZoomMeeting = jest.fn().mockResolvedValue({
+        success: true,
+        meetingUrl: 'https://zoom.us/j/123456789',
+        meetingId: '123456789',
+        newTokens: { access_token: 'new-zoom-token', refresh_token: 'new-zoom-refresh' }
       });
 
       const result = await schedulingService.createAutomatedMeeting(
@@ -415,7 +403,6 @@ describe('AI Scheduling Service', () => {
       );
 
       expect(result.success).toBe(true);
-      expect(zoomService.refreshZoomToken).toHaveBeenCalled();
       expect(mockUser.save).toHaveBeenCalled();
     });
 
@@ -454,7 +441,7 @@ describe('AI Scheduling Service', () => {
         zoomConnected: false,
         googleConnected: false
       };
-      
+
       Employee.findById = jest.fn().mockResolvedValue(mockUser);
       Employee.find = jest.fn().mockResolvedValue([
         { email: 'attendee@example.com', name: 'Attendee' }

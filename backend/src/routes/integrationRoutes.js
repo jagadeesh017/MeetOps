@@ -5,11 +5,8 @@ const auth = require('../middlewares/authmiddleware');
 
 router.get('/google/connect', auth, integrationController.getGoogleAuthUrl);
 router.get('/google/callback', integrationController.googleCallback);
-
-router.get('/google/status', auth, integrationController.getIntegrationStatus); 
 router.get('/zoom/connect', auth, integrationController.getZoomAuthUrl);
 router.get('/zoom/callback', integrationController.zoomCallback);
-
 router.get('/status', auth, integrationController.getIntegrationStatus);
 router.post('/disconnect', auth, integrationController.disconnectIntegration);
 

@@ -1,5 +1,5 @@
 import { createContext, useEffect, useState } from "react";
-import axios from "axios";
+import api from "../services/api";
 
 export const AuthContext = createContext();
 
@@ -11,10 +11,7 @@ export default function AuthProvider({ children }) {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const savedToken =
-          localStorage.getItem("token") ||
-          sessionStorage.getItem("token");
-
+        const savedToken = localStorage.getItem("token") || sessionStorage.getItem("token");
         setToken(savedToken);
 
         if (!savedToken) {
@@ -22,12 +19,9 @@ export default function AuthProvider({ children }) {
           return;
         }
 
-        const res = await axios.get("http://localhost:5000/auth/me", {
-          headers: { Authorization: `Bearer ${savedToken}` }
-        });
+        const res = await api.get("/auth/me");
         setUser(res.data);
       } catch (err) {
-        console.error("Auth check failed:", err.message);
         localStorage.removeItem("token");
         sessionStorage.removeItem("token");
         setToken(null);

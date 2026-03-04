@@ -1,15 +1,14 @@
 const nodemailer = require('nodemailer');
-const { buildInviteHTML, buildCancellationHTML } = require('./email-template-service');
-
+const { buildInviteHTML, buildCancellationHTML, buildUpdateHTML } = require('./email-template-service');
 
 const createTransporter = () => {
   const { EMAIL_HOST, EMAIL_PORT, EMAIL_USER, EMAIL_PASS, EMAIL_SERVICE } = process.env;
   if (!EMAIL_USER || !EMAIL_PASS) throw new Error('Email credentials not configured');
-  
+
   if (EMAIL_SERVICE === 'gmail' || (!EMAIL_HOST && EMAIL_USER.includes('@gmail.com'))) {
     return nodemailer.createTransport({ service: 'gmail', auth: { user: EMAIL_USER, pass: EMAIL_PASS } });
   }
-  
+
   return nodemailer.createTransport({
     host: EMAIL_HOST || 'smtp.gmail.com',
     port: parseInt(EMAIL_PORT || '587'),
@@ -36,42 +35,7 @@ const buildICS = ({ title, startTime, endTime, organizerEmail, attendees, descri
   return cal.toString();
 };
 
-async function sendMeetingInvites(meetingData) {
-  const { title, organizerEmail, attendees = [] } = meetingData;
-  if (attendees.length === 0) return { sent: 0, failed: 0, errors: [] };
-
-  let transporter;
-  try {
-    transporter = createTransporter();
-  } catch (err) {
-    return { sent: 0, failed: 0, errors: [err.message] };
-  }
-
-  const icsContent = buildICS(meetingData);
-  const htmlBody = buildInviteHTML(meetingData);
-  const results = { sent: 0, failed: 0, errors: [] };
-
-  for (const attendee of attendees) {
-    if (!attendee.email) continue;
-    try {
-      await transporter.sendMail({
-        from: `"MeetOps" <${process.env.EMAIL_USER}>`,
-        to: attendee.email,
-        subject: `📅 Meeting Invite: ${title}`,
-        html: htmlBody,
-        attachments: [{ filename: 'invite.ics', content: icsContent, contentType: 'text/calendar; method=REQUEST' }],
-      });
-      results.sent++;
-    } catch (err) {
-      results.failed++;
-      results.errors.push(`${attendee.email}: ${err.message}`);
-    }
-  }
-
-  return results;
-}
-
-async function sendMeetingCancellations(meetingData) {
+async function sendEmails(meetingData, { subject, htmlBuilder, includeICS = false }) {
   const { title, attendees = [] } = meetingData;
   if (attendees.length === 0) return { sent: 0, failed: 0, errors: [] };
 
@@ -82,7 +46,10 @@ async function sendMeetingCancellations(meetingData) {
     return { sent: 0, failed: 0, errors: [err.message] };
   }
 
-  const htmlBody = buildCancellationHTML(meetingData);
+  const htmlBody = htmlBuilder(meetingData);
+  const attachments = includeICS
+    ? [{ filename: 'invite.ics', content: buildICS(meetingData), contentType: 'text/calendar; method=REQUEST' }]
+    : [];
   const results = { sent: 0, failed: 0, errors: [] };
 
   for (const attendee of attendees) {
@@ -91,8 +58,9 @@ async function sendMeetingCancellations(meetingData) {
       await transporter.sendMail({
         from: `"MeetOps" <${process.env.EMAIL_USER}>`,
         to: attendee.email,
-        subject: `❌ Meeting Cancelled: ${title}`,
+        subject: subject.replace('{title}', title),
         html: htmlBody,
+        ...(attachments.length > 0 && { attachments }),
       });
       results.sent++;
     } catch (err) {
@@ -104,4 +72,8 @@ async function sendMeetingCancellations(meetingData) {
   return results;
 }
 
-module.exports = { sendMeetingInvites, sendMeetingCancellations };
+const sendMeetingInvites = (data) => sendEmails(data, { subject: '📅 Meeting Invite: {title}', htmlBuilder: buildInviteHTML, includeICS: true });
+const sendMeetingCancellations = (data) => sendEmails(data, { subject: '❌ Meeting Cancelled: {title}', htmlBuilder: buildCancellationHTML });
+const sendMeetingUpdates = (data) => sendEmails(data, { subject: '📝 Meeting Updated: {title}', htmlBuilder: buildUpdateHTML, includeICS: true });
+
+module.exports = { sendMeetingInvites, sendMeetingCancellations, sendMeetingUpdates };

@@ -26,11 +26,11 @@ async function hasConflict(email, startTime, endTime, excludeMeetingId = null) {
   return conflicts.length > 0 ? conflicts[0] : null;
 }
 
-async function checkAttendeesConflicts(emails, proposedSlots) {
+async function checkAttendeesConflicts(emails, proposedSlots, excludeMeetingId = null) {
   const busyAttendees = [];
 
   const slotPromises = proposedSlots.map((slot) =>
-    findConflicts(emails, slot.startTime, slot.endTime).then((conflicts) => ({ slot, conflicts }))
+    findConflicts(emails, slot.startTime, slot.endTime, excludeMeetingId).then((conflicts) => ({ slot, conflicts }))
   );
 
   const results = await Promise.all(slotPromises);

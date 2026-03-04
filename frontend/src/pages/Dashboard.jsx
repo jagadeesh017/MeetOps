@@ -42,29 +42,16 @@ export default function Dashboard() {
     }
   }, [fetchStatus]);
 
-  const handleConnectGoogle = async () => {
+  const handleConnect = async (connectFn, platform) => {
     try {
-      const { url } = await connectGoogle();
+      const { url } = await connectFn();
       window.location.href = url;
     } catch {
-      showToast("Failed to start Google connection", "error");
+      showToast(`Failed to start ${platform} connection`, "error");
     }
   };
 
-  const handleConnectZoom = async () => {
-    try {
-      const { url } = await connectZoom();
-      window.location.href = url;
-    } catch {
-      showToast("Failed to start Zoom connection", "error");
-    }
-  };
-
-  const requestDisconnect = (platform) => {
-    setPendingDisconnect(platform);
-  };
-
-  const confirmDisconnect = async () => {
+  const handleDisconnect = async () => {
     if (!pendingDisconnect) return;
     try {
       await disconnectIntegration(pendingDisconnect);
@@ -76,10 +63,6 @@ export default function Dashboard() {
     } finally {
       setPendingDisconnect(null);
     }
-  };
-
-  const cancelDisconnect = () => {
-    setPendingDisconnect(null);
   };
 
   const logout = () => {
@@ -140,7 +123,7 @@ export default function Dashboard() {
 
           <div className="ml-auto flex gap-2.5">
             <button
-              onClick={integrations.google.connected ? () => requestDisconnect('google') : handleConnectGoogle}
+              onClick={integrations.google.connected ? () => setPendingDisconnect('google') : () => handleConnect(connectGoogle, 'Google')}
               className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${
                 integrations.google.connected
                   ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/50'
@@ -158,7 +141,7 @@ export default function Dashboard() {
             </button>
 
             <button
-              onClick={integrations.zoom.connected ? () => requestDisconnect('zoom') : handleConnectZoom}
+              onClick={integrations.zoom.connected ? () => setPendingDisconnect('zoom') : () => handleConnect(connectZoom, 'Zoom')}
               className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${
                 integrations.zoom.connected
                   ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/50'
@@ -202,13 +185,13 @@ export default function Dashboard() {
             </p>
             <div className="flex justify-end gap-3">
               <button
-                onClick={cancelDisconnect}
+                onClick={() => setPendingDisconnect(null)}
                 className="px-3 py-1.5 rounded-lg text-sm border border-gray-200 dark:border-[#4a4a4a] text-gray-700 dark:text-gray-200 bg-white dark:bg-[#333] hover:bg-gray-50 dark:hover:bg-[#444]"
               >
                 Cancel
               </button>
               <button
-                onClick={confirmDisconnect}
+                onClick={handleDisconnect}
                 className="px-3 py-1.5 rounded-lg text-sm bg-red-600 text-white hover:bg-red-700"
               >
                 Disconnect

@@ -25,16 +25,16 @@ const PLATFORM_CONFIG = {
 
 function getPlatformStyle(platform) {
     const colors = {
-        zoom:   { bg: '#2D8CFF', border: '#1a6fd4', text: '#ffffff' },
-        meet:   { bg: '#34A853', border: '#1e7e34', text: '#ffffff' },
+        zoom: { bg: '#2D8CFF', border: '#1a6fd4', text: '#ffffff' },
+        meet: { bg: '#34A853', border: '#1e7e34', text: '#ffffff' },
         google: { bg: '#34A853', border: '#1e7e34', text: '#ffffff' },
-        teams:  { bg: '#6264a7', border: '#4a4c8a', text: '#ffffff' },
-        other:  { bg: '#6b7280', border: '#4b5563', text: '#ffffff' },
+        teams: { bg: '#6264a7', border: '#4a4c8a', text: '#ffffff' },
+        other: { bg: '#6b7280', border: '#4b5563', text: '#ffffff' },
     };
     return colors[platform] ?? colors.other;
 }
 
-function EventDetailModal({ meeting, onClose, onDelete, canDelete, deleting, timezone }) {
+function EventDetailModal({ meeting, onClose, onDelete, onEdit, canDelete, deleting, timezone }) {
     if (!meeting) return null;
     const platform = meeting.platform || 'other';
     const cfg = PLATFORM_CONFIG[platform] || PLATFORM_CONFIG.other;
@@ -143,13 +143,21 @@ function EventDetailModal({ meeting, onClose, onDelete, canDelete, deleting, tim
                             </div>
                         )}
                         {canDelete && !isCancelled && !isCompleted && (
-                            <button
-                                onClick={() => onDelete(meeting)}
-                                disabled={deleting}
-                                className="px-4 py-2.5 rounded-lg border border-red-200 dark:border-red-900/40 text-red-600 dark:text-red-300 text-sm font-semibold bg-red-50/70 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 transition disabled:opacity-60 disabled:cursor-not-allowed"
-                            >
-                                {deleting ? 'Cancelling...' : 'Cancel meeting'}
-                            </button>
+                            <>
+                                <button
+                                    onClick={() => onEdit(meeting)}
+                                    className="px-4 py-2.5 rounded-lg border border-blue-200 dark:border-blue-900/40 text-blue-600 dark:text-blue-300 text-sm font-semibold bg-blue-50/70 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition"
+                                >
+                                    ✏️ Edit
+                                </button>
+                                <button
+                                    onClick={() => onDelete(meeting)}
+                                    disabled={deleting}
+                                    className="px-4 py-2.5 rounded-lg border border-red-200 dark:border-red-900/40 text-red-600 dark:text-red-300 text-sm font-semibold bg-red-50/70 dark:bg-red-900/20 hover:bg-red-100 dark:hover:bg-red-900/30 transition disabled:opacity-60 disabled:cursor-not-allowed"
+                                >
+                                    {deleting ? 'Cancelling...' : 'Cancel meeting'}
+                                </button>
+                            </>
                         )}
                         <button
                             onClick={onClose}
@@ -175,6 +183,7 @@ export default function CustomCalendar() {
     const [selectedSlot, setSelectedSlot] = useState(null);
     const [selectedMeeting, setSelectedMeeting] = useState(null);
     const [deleting, setDeleting] = useState(false);
+    const [editingMeeting, setEditingMeeting] = useState(null);
     const [currentTime, setCurrentTime] = useState(new Date());
     const { showToast } = useToast();
 
@@ -275,6 +284,11 @@ export default function CustomCalendar() {
         setShowScheduleForm(true);
     };
 
+    const handleEditMeeting = (meeting) => {
+        setSelectedMeeting(null);
+        setEditingMeeting(meeting);
+    };
+
     const handleDeleteMeeting = async (meeting) => {
         if (!meeting?._id) return;
         setDeleting(true);
@@ -363,8 +377,7 @@ export default function CustomCalendar() {
                             <div className="text-xs text-gray-500 dark:text-gray-400">
                                 {day.toLocaleDateString('en-US', { weekday: 'short' })}
                             </div>
-                            <div className={`text-lg font-semibold ${
-                                day.getFullYear() === todayParts.year && day.getMonth() === todayParts.month && day.getDate() === todayParts.day
+                            <div className={`text-lg font-semibold ${day.getFullYear() === todayParts.year && day.getMonth() === todayParts.month && day.getDate() === todayParts.day
                                     ? 'text-blue-600 dark:text-[#6264a7]'
                                     : 'text-gray-900 dark:text-gray-100'
                                 }`}>
@@ -766,9 +779,21 @@ export default function CustomCalendar() {
                     meeting={selectedMeeting}
                     onClose={() => setSelectedMeeting(null)}
                     onDelete={handleDeleteMeeting}
+                    onEdit={handleEditMeeting}
                     canDelete={selectedMeeting.organizerEmail === user?.email}
                     deleting={deleting}
                     timezone={timezone}
+                />
+            )}
+
+            {editingMeeting && (
+                <ScheduleMeeting
+                    onClose={() => setEditingMeeting(null)}
+                    onMeetingCreated={() => {
+                        fetchMeetings();
+                        setEditingMeeting(null);
+                    }}
+                    editMeeting={editingMeeting}
                 />
             )}
         </div>

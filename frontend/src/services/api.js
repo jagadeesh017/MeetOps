@@ -4,7 +4,6 @@ const api = axios.create({
     baseURL: "http://localhost:5000",
 });
 
-
 api.interceptors.request.use(
     (config) => {
         const token = localStorage.getItem("token") || sessionStorage.getItem("token");
@@ -13,39 +12,20 @@ api.interceptors.request.use(
         }
         return config;
     },
-    (error) => {
-        return Promise.reject(error);
-    }
+    (error) => Promise.reject(error)
 );
 
-
-export const getMeetings = async (userEmail) => {
-    const response = await api.get(`/meetings?userEmail=${userEmail}`);
+const apiCall = async (method, url, data = null) => {
+    const response = await api[method](url, data);
     return response.data;
 };
 
-export const createMeeting = async (meetingData) => {
-    const response = await api.post("/meetings", meetingData);
-    return response.data;
-};
-
-export const deleteMeeting = async (meetingId) => {
-    const response = await api.delete(`/meetings/${meetingId}`);
-    return response.data;
-};
-
-export const checkAttendeeAvailability = async (attendees, startTime, endTime) => {
-    const response = await api.post("/meetings/check-availability", {
-        attendees,
-        startTime,
-        endTime,
-    });
-    return response.data;
-};
-
-export const disconnectIntegration = async (platform) => {
-    const response = await api.post("/integrations/disconnect", { platform });
-    return response.data;
-};
+export const getMeetings = (userEmail) => apiCall('get', `/meetings?userEmail=${userEmail}`);
+export const createMeeting = (meetingData) => apiCall('post', '/meetings', meetingData);
+export const updateMeeting = (meetingId, data) => apiCall('put', `/meetings/${meetingId}`, data);
+export const deleteMeeting = (meetingId) => apiCall('delete', `/meetings/${meetingId}`);
+export const checkAttendeeAvailability = (attendees, startTime, endTime) =>
+    apiCall('post', '/meetings/check-availability', { attendees, startTime, endTime });
+export const disconnectIntegration = (platform) => apiCall('post', '/integrations/disconnect', { platform });
 
 export default api;

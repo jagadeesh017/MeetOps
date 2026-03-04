@@ -4,7 +4,7 @@ const axios = require('axios');
 
 const GOOGLE_SCOPES = ['https://www.googleapis.com/auth/calendar.events', 'https://www.googleapis.com/auth/userinfo.email'];
 const ZOOM_SCOPES = 'meeting:write:meeting meeting:write:meeting:admin meeting:delete:meeting meeting:delete:meeting:admin meeting:write meeting:write:admin user:read:user user:read';
-//google
+
 const getGoogleClient = () => new google.auth.OAuth2(
   process.env.GOOGLE_CLIENT_ID?.trim(),
   process.env.GOOGLE_CLIENT_SECRET?.trim(),
@@ -45,7 +45,6 @@ exports.googleCallback = async (req, res) => {
   }
 };
 
-//Zoom
 const getZoomRedirectUri = () => (process.env.ZOOM_REDIRECT_URI || 'http://localhost:5000/api/integrations/zoom/callback').trim();
 
 
@@ -93,7 +92,6 @@ exports.zoomCallback = async (req, res) => {
   }
 };
 
-//status
 exports.getIntegrationStatus = async (req, res) => {
   try {
     const user = await Employee.findById(req.user.id);
@@ -106,7 +104,6 @@ exports.getIntegrationStatus = async (req, res) => {
   }
 };
 
-// Disconnect 
 exports.disconnectIntegration = async (req, res) => {
   const { platform } = req.body;
   try {

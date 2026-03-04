@@ -5,36 +5,42 @@ const zoomService = require("./zoom-service");
 const googleMeetService = require("./google-meet-service");
 const emailService = require("./email-invite-service");
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const checkTimeSlot = async (attendeeEmails, startTime, duration) => {
+  try {
+    const endTime = new Date(startTime.getTime() + duration * 60000);
+    const query = {
+      status: { $ne: "cancelled" },
+      startTime: { $lt: endTime },
+      endTime: { $gt: startTime },
+    };
+    if (attendeeEmails.length > 0) {
+      query.$or = [
+        { organizerEmail: { $in: attendeeEmails } },
+        { "attendees.email": { $in: attendeeEmails } },
+      ];
+    }
+    const conflict = await Meeting.findOne(query);
+    return !conflict;
+  } catch {
+    return true;
+  }
+};
+
 const findAvailableSlot = async (attendeeEmails, preferredTime, duration) => {
   try {
-    const attendees = await Employee.find({ email: { $in: attendeeEmails } });
-    if (attendees.length === 0) throw new Error("No attendees found");
-
     if (await checkTimeSlot(attendeeEmails, preferredTime, duration)) return preferredTime;
 
     let searchTime = new Date(preferredTime);
     const maxChecks = (7 * 24 * 60) / 30;
-
     for (let i = 0; i < maxChecks; i++) {
       searchTime.setMinutes(searchTime.getMinutes() + 30);
       if (await checkTimeSlot(attendeeEmails, searchTime, duration)) return searchTime;
     }
     return preferredTime;
-  } catch (error) {
-    return preferredTime;
-  }
-};
-
-const checkTimeSlot = async (attendeeEmails, startTime, duration) => {
-  try {
-    const endTime = new Date(startTime.getTime() + duration * 60000);
-    const conflicts = await Meeting.findOne({
-      startTime: { $lt: endTime },
-      endTime: { $gt: startTime },
-    });
-    return !conflicts;
   } catch {
-    return true;
+    return preferredTime;
   }
 };
 
@@ -42,9 +48,9 @@ const validateIntegrationConnected = async (userId, platform) => {
   const user = await Employee.findById(userId);
   if (!user) throw new Error("User not found");
 
-  const isZoomValid = platform === "zoom" && (user.zoomConnected && user.zoomAccessToken);
-  const isGoogleValid = platform === "google" && (user.googleConnected && user.googleAccessToken && user.googleRefreshToken);
-  
+  const isZoomValid = platform === "zoom" && user.zoomConnected && user.zoomAccessToken;
+  const isGoogleValid = platform === "google" && user.googleConnected && user.googleAccessToken && user.googleRefreshToken;
+
   if (!isZoomValid && !isGoogleValid) {
     throw new Error(`Please connect your ${platform === "zoom" ? "Zoom" : "Google Calendar"} account first`);
   }
@@ -54,175 +60,203 @@ const validateIntegrationConnected = async (userId, platform) => {
 const validateAttendees = async (attendees) => {
   if (!attendees?.length) throw new Error("At least one attendee is required");
 
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   const foundAttendees = [];
-  const allEmployees = await Employee.find().select('email name');
+  const allEmployees = await Employee.find().select("email name");
 
   for (const attendee of attendees) {
-    const normalizedSearch = attendee.trim().toLowerCase().replace(/\s+/g, '');
-    
-    const groupKeywords = ['team', 'group', 'cluster'];
-    const isGroupReference = groupKeywords.some(kw => normalizedSearch.includes(kw));
-    
+    const normalizedSearch = attendee.trim().toLowerCase().replace(/\s+/g, "");
+
+    const isGroupReference = ["team", "group", "cluster"].some((kw) => normalizedSearch.includes(kw));
     if (isGroupReference) {
-     
-      const cluster = await Cluster.findOne({
-        name: { $regex: new RegExp(attendee, 'i') }
-      }).populate('members', 'email name');
-      
-      if (cluster && cluster.members.length > 0) {
-        cluster.members.forEach(member => {
-          if (!foundAttendees.includes(member.email)) {
-            foundAttendees.push(member.email);
-          }
-        });
+      const cluster = await Cluster.findOne({ name: { $regex: new RegExp(attendee, "i") } }).populate("members", "email name");
+      if (cluster?.members?.length > 0) {
+        cluster.members.forEach((m) => { if (!foundAttendees.includes(m.email)) foundAttendees.push(m.email); });
         continue;
       }
     }
 
-    let user = emailRegex.test(attendee) ? await Employee.findOne({ email: attendee }).select('email name') : null;
-
-    if (!user) {
-      user = allEmployees.find(emp => {
-        const empName = emp.name.toLowerCase().replace(/\s+/g, '');
-        const empEmail = emp.email.toLowerCase().replace(/\s+/g, '');
-        return empName.includes(normalizedSearch) || empEmail.includes(normalizedSearch) ||
-               normalizedSearch.includes(empName) || normalizedSearch.includes(empEmail);
-      });
+    if (EMAIL_REGEX.test(attendee)) {
+      if (!foundAttendees.includes(attendee.toLowerCase())) foundAttendees.push(attendee.toLowerCase());
+      continue;
     }
 
-    if (!user) throw new Error(`User or group "${attendee}" not found.`);
-    if (!foundAttendees.includes(user.email)) {
-      foundAttendees.push(user.email);
-    }
+    const user = allEmployees.find((emp) => {
+      const empName = emp.name.toLowerCase().replace(/\s+/g, "");
+      const empEmail = emp.email.toLowerCase().replace(/\s+/g, "");
+      return empName.includes(normalizedSearch) || empEmail.includes(normalizedSearch) ||
+        normalizedSearch.includes(empName) || normalizedSearch.includes(empEmail);
+    });
+
+    if (!user) throw new Error(`User or group "${attendee}" not found. Use a valid email for external attendees.`);
+    if (!foundAttendees.includes(user.email)) foundAttendees.push(user.email);
   }
 
   return foundAttendees;
 };
 
 const validateMeetingTime = (meetingTime) => {
-  const now = new Date();
-  const minutesDiff = (meetingTime.getTime() - now.getTime()) / (1000 * 60);
-  if (minutesDiff < 0) {
-    throw new Error(`That time is in the past. Please choose a future date and time.`);
-  }
+  const minutesDiff = (meetingTime.getTime() - Date.now()) / 60000;
+  if (minutesDiff < 0) throw new Error("That time is in the past. Please choose a future date and time.");
   if (minutesDiff < 30) {
-    const suggestedTime = new Date(Date.now() + 60 * 60000);
-    throw new Error(`Meetings must be scheduled at least 30 minutes from now. How about ${suggestedTime.toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}?`);
+    const suggested = new Date(Date.now() + 60 * 60000);
+    throw new Error(`Meetings must be scheduled at least 30 minutes from now. How about ${suggested.toISOString()}?`);
   }
 };
+
+async function createExternalLink(platform, meetingData, user) {
+  const { title, startTime, endTime, timezone, description, organizerEmail, attendeeObjects } = meetingData;
+
+  if (platform === "zoom") {
+    if (!user.zoomAccessToken) throw new Error("Zoom tokens not found");
+    const result = await zoomService.createZoomMeeting(
+      { title, startTime: startTime.toISOString(), endTime: endTime.toISOString(), timezone: timezone || "UTC", description: description || "" },
+      user.zoomAccessToken, user.zoomRefreshToken
+    );
+    if (result.newTokens) {
+      user.zoomAccessToken = result.newTokens.access_token;
+      if (result.newTokens.refresh_token) user.zoomRefreshToken = result.newTokens.refresh_token;
+      await user.save();
+    }
+    if (!result.success) throw new Error(`Zoom API Error: ${result.error}`);
+    return { meetingLink: result.meetingUrl, externalId: result.meetingId || null };
+  }
+
+  if (platform === "google") {
+    if (!user.googleRefreshToken || !user.googleAccessToken) throw new Error("Google tokens not found");
+    const result = await googleMeetService.createGoogleMeetMeeting(
+      { title, startTime, endTime, organizerEmail, attendees: attendeeObjects, description: description || "", timezone: timezone || "IST" },
+      { accessToken: user.googleAccessToken, refreshToken: user.googleRefreshToken }
+    );
+    if (!result.success) throw new Error(`Google API Error: ${result.error}`);
+    return { meetingLink: result.hangoutLink || result.meetingUrl, externalId: result.eventId || null };
+  }
+
+  throw new Error("Invalid platform");
+}
+
+async function updateExternalLink(platform, externalId, updateData, user) {
+  if (!externalId) return { success: true, skipped: true };
+
+  if (platform === "zoom") {
+    const result = await zoomService.updateZoomMeeting(externalId, updateData, user.zoomAccessToken, user.zoomRefreshToken);
+    if (result.newTokens) {
+      user.zoomAccessToken = result.newTokens.access_token;
+      if (result.newTokens.refresh_token) user.zoomRefreshToken = result.newTokens.refresh_token;
+      await user.save();
+    }
+    return result;
+  }
+
+  if (platform === "google" || platform === "meet") {
+    return googleMeetService.updateGoogleMeetEvent(externalId, updateData, {
+      refreshToken: user.googleRefreshToken,
+      accessToken: user.googleAccessToken,
+    });
+  }
+
+  return { success: true, skipped: true };
+}
 
 const createAutomatedMeeting = async (meetingData, userId, userEmail, platform) => {
   try {
     await validateIntegrationConnected(userId, platform);
-    const validatedAttendeeEmails = await validateAttendees(meetingData.attendees);
+    const validatedEmails = await validateAttendees(meetingData.attendees);
     validateMeetingTime(meetingData.suggestedTime);
 
-    const finalTime = await findAvailableSlot(validatedAttendeeEmails, meetingData.suggestedTime, meetingData.duration);
+    const finalTime = await findAvailableSlot(validatedEmails, meetingData.suggestedTime, meetingData.duration);
     const user = await Employee.findById(userId);
     if (!user) throw new Error("User not found");
 
     const endTime = new Date(finalTime.getTime() + meetingData.duration * 60000);
-    let meetingLink, externalId;
+    const attendeeObjects = validatedEmails.map((e) => ({ email: e, name: e.split("@")[0] }));
 
-    if (platform === "zoom") {
-      if (!user.zoomAccessToken) throw new Error("Zoom tokens not found");
+    const { meetingLink, externalId } = await createExternalLink(platform, {
+      title: meetingData.title, startTime: finalTime, endTime, timezone: "UTC",
+      description: meetingData.description, organizerEmail: userEmail, attendeeObjects,
+    }, user);
 
-      let zoomResponse = await zoomService.createZoomMeeting(
-        {
-          title: meetingData.title,
-          startTime: finalTime.toISOString(),
-          endTime: endTime.toISOString(),
-          timezone: "UTC",
-          description: meetingData.description || "",
-        },
-        user.zoomAccessToken,
-        user.zoomRefreshToken
-      );
-      if (!zoomResponse.success && zoomResponse.status === 401 && user.zoomRefreshToken) {
-        try {
-          const tokens = await zoomService.refreshZoomToken(user.zoomRefreshToken);
-          user.zoomAccessToken = tokens.access_token;
-          if (tokens.refresh_token) user.zoomRefreshToken = tokens.refresh_token;
-          await user.save();
-
-          zoomResponse = await zoomService.createZoomMeeting(
-            {
-              title: meetingData.title,
-              startTime: finalTime.toISOString(),
-              endTime: endTime.toISOString(),
-              timezone: "UTC",
-              description: meetingData.description || "",
-            },
-            user.zoomAccessToken,
-            user.zoomRefreshToken
-          );
-        } catch (refreshErr) {
-          throw new Error("Zoom token refresh failed. Please reconnect your Zoom integration.");
-        }
-      }
-
-      if (!zoomResponse.success) throw new Error(`Zoom API Error: ${zoomResponse.error}`);
-      meetingLink = zoomResponse.meetingUrl;
-      externalId = zoomResponse.meetingId || null;
-    } else if (platform === "google") {
-      if (!user.googleRefreshToken || !user.googleAccessToken) throw new Error("Google tokens not found");
-      const googleResponse = await googleMeetService.createGoogleMeetMeeting(
-        { title: meetingData.title, startTime: finalTime, endTime, organizerEmail: userEmail, attendees: validatedAttendeeEmails.map(e => ({ email: e })), description: meetingData.description || "", timezone: "IST" },
-        { accessToken: user.googleAccessToken, refreshToken: user.googleRefreshToken }
-      );
-      if (!googleResponse.success) throw new Error(`Google API Error: ${googleResponse.error}`);
-      meetingLink = googleResponse.hangoutLink || googleResponse.meetingUrl;
-      externalId = googleResponse.eventId || null;
-    } else {
-      throw new Error("Invalid platform");
-    }
-
-    const attendeeObjects = validatedAttendeeEmails.map(e => ({ email: e, name: e.split('@')[0] }));
     const meeting = new Meeting({
-      title: meetingData.title,
-      description: meetingData.description,
-      attendees: attendeeObjects,
-      startTime: finalTime,
-      endTime,
-      joinUrl: meetingLink,
-      externalId,
-      platform,
-      organizerEmail: userEmail,
-      createdBy: userId,
+      title: meetingData.title, description: meetingData.description, attendees: attendeeObjects,
+      startTime: finalTime, endTime, joinUrl: meetingLink, externalId, platform,
+      organizerEmail: userEmail, createdBy: userId,
     });
-
     await meeting.save();
 
     emailService.sendMeetingInvites({
-      title: meetingData.title,
-      attendees: attendeeObjects,
-      startTime: finalTime,
-      endTime,
-      organizerEmail: userEmail,
-      description: meetingData.description,
-      joinUrl: meetingLink,
-    }).catch(() => {});
+      title: meetingData.title, attendees: attendeeObjects, startTime: finalTime, endTime,
+      organizerEmail: userEmail, description: meetingData.description, joinUrl: meetingLink, platform,
+    }).catch(() => { });
 
     return {
       success: true,
-      meeting: {
-        id: meeting._id,
-        title: meeting.title,
-        startTime: finalTime,
-        duration: meetingData.duration,
-        attendees: meetingData.attendees,
-        meetingLink,
-        platform,
-      },
-      message: `Meeting created successfully for ${finalTime.toLocaleString()}`,
+      meeting: { id: meeting._id, title: meeting.title, startTime: finalTime, duration: meetingData.duration, attendees: meetingData.attendees, meetingLink, platform },
+      message: `Meeting created successfully for ${finalTime.toISOString()}`,
     };
   } catch (error) {
     throw new Error("Failed to create meeting: " + error.message);
   }
 };
 
-// Get suggested time slots
+const updateAutomatedMeeting = async (meetingId, updateFields, userId, userEmail) => {
+  try {
+    const user = await Employee.findById(userId);
+    if (!user) throw new Error("User not found");
+
+    const meeting = await Meeting.findById(meetingId);
+    if (!meeting) throw new Error("Meeting not found");
+    if (meeting.status === "cancelled") throw new Error("Cannot edit a cancelled meeting");
+    if (meeting.organizerEmail !== userEmail) throw new Error("Only the organizer can edit this meeting");
+    if (new Date(meeting.endTime) < new Date()) throw new Error("Cannot edit a completed meeting");
+
+    const newStart = updateFields.startTime ? new Date(updateFields.startTime) : meeting.startTime;
+    const newEnd = updateFields.endTime ? new Date(updateFields.endTime) : (updateFields.startTime && updateFields.duration
+      ? new Date(new Date(updateFields.startTime).getTime() + updateFields.duration * 60000) : meeting.endTime);
+
+    if (newEnd <= newStart) throw new Error("End time must be after start time");
+    if (updateFields.startTime && newStart <= new Date()) throw new Error("Cannot schedule for a past time");
+    if ((newEnd - newStart) > 24 * 60 * 60 * 1000) throw new Error("Meeting duration cannot exceed 24 hours");
+
+    const safeAttendees = updateFields.attendees
+      ? (await validateAttendees(updateFields.attendees)).map((e) => ({ email: e, name: e.split("@")[0] }))
+      : meeting.attendees;
+
+    const updateData = {
+      title: updateFields.title || meeting.title,
+      startTime: newStart,
+      endTime: newEnd,
+      timezone: meeting.timezone || "UTC",
+      description: updateFields.description !== undefined ? updateFields.description : meeting.description,
+      attendees: safeAttendees,
+      organizerEmail: meeting.organizerEmail,
+    };
+
+    const extResult = await updateExternalLink(meeting.platform, meeting.externalId, updateData, user);
+    if (!extResult.success && !extResult.skipped) throw new Error(extResult.error || "Failed to update on platform");
+
+    if (updateFields.title) meeting.title = updateFields.title;
+    if (updateFields.startTime) meeting.startTime = newStart;
+    if (updateFields.endTime || updateFields.startTime) meeting.endTime = newEnd;
+    if (updateFields.description !== undefined) meeting.description = updateFields.description;
+    if (updateFields.attendees) meeting.attendees = safeAttendees;
+    meeting.updatedAt = new Date();
+    await meeting.save();
+
+    emailService.sendMeetingUpdates({
+      title: meeting.title, startTime: meeting.startTime, endTime: meeting.endTime,
+      organizerEmail: meeting.organizerEmail, attendees: meeting.attendees,
+      description: meeting.description || "", joinUrl: meeting.joinUrl, platform: meeting.platform,
+    }).catch(() => { });
+
+    return {
+      success: true,
+      meeting: { id: meeting._id, title: meeting.title, startTime: meeting.startTime, endTime: meeting.endTime, platform: meeting.platform, attendees: meeting.attendees, meetingLink: meeting.joinUrl },
+      message: `Meeting "${meeting.title}" updated successfully`,
+    };
+  } catch (error) {
+    throw new Error("Failed to update meeting: " + error.message);
+  }
+};
+
 const getSuggestedTimeSlots = async (attendeeEmails, startDate, duration) => {
   const slots = [];
   const current = new Date(startDate);
@@ -245,6 +279,7 @@ const getSuggestedTimeSlots = async (attendeeEmails, startDate, duration) => {
 
 module.exports = {
   createAutomatedMeeting,
+  updateAutomatedMeeting,
   findAvailableSlot,
   checkTimeSlot,
   getSuggestedTimeSlots,

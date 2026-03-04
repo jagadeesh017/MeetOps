@@ -1,21 +1,16 @@
 import api from './api';
 
-export const getIntegrationStatus = async () => {
-    const response = await api.get('/api/integrations/status');
+const getEndpoint = async (path) => {
+    const response = await api.get(path);
     return response.data;
 };
 
-export const connectGoogle = async () => {
-    const response = await api.get('/api/integrations/google/connect');
-    return response.data; 
-};
-
-export const connectZoom = async () => {
-    const response = await api.get('/api/integrations/zoom/connect');
-    return response.data; 
-};
-
-export const disconnectIntegration = async (platform) => {
-    const response = await api.post('/api/integrations/disconnect', { platform });
+const postEndpoint = async (path, data) => {
+    const response = await api.post(path, data);
     return response.data;
 };
+
+export const getIntegrationStatus = () => getEndpoint('/api/integrations/status');
+export const connectGoogle = () => getEndpoint('/api/integrations/google/connect');
+export const connectZoom = () => getEndpoint('/api/integrations/zoom/connect');
+export const disconnectIntegration = (platform) => postEndpoint('/api/integrations/disconnect', { platform });

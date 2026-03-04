@@ -3,7 +3,6 @@ const chrono = require("chrono-node");
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// Parse meeting prompt with AI
 const parseMeetingPrompt = async (prompt, contextAware = false) => {
   try {
     const systemMessage = `You are a helpful AI meeting scheduling assistant. You can understand conversational requests and context.
@@ -20,6 +19,13 @@ WHEN USER PROVIDES PLATFORM ("zoom", "google", "meet"):
 WHEN USER ASKS FOR AVAILABLE SLOTS:
 - Phrases: "next available slots", "show free slots", "what slots", "find time"
 - Return: {"isMeetingRequest": false, "isSlotQuery": true}
+
+WHEN USER WANTS TO UPDATE/RESCHEDULE/CHANGE/MOVE/EDIT/MODIFY A MEETING:
+- Detect phrases: "reschedule", "update", "change", "move", "edit", "modify", "push", "shift"
+- Set isUpdateRequest: true, isMeetingRequest: false
+- Extract meetingReference (title in quotes, attendee name after "with", time reference)
+- Extract updateFields: newTime, newTitle, newDescription, newAttendees (only fields being changed)
+- Example: "reschedule standup to 3pm" → isUpdateRequest:true, meetingReference:"standup", updateFields:{newTime:"3pm"}
 
 EXTRACT THESE FIELDS:
 1. ATTENDEES: Names, emails, teams (testuser, john@email.com, frontend team, hr team)
@@ -41,23 +47,34 @@ RESPONSE FORMAT (valid JSON only):
   "platform": "zoom" or "google" or null,
   "confidence": "high" or "low",
   "isMeetingRequest": true,
-  "isSlotQuery": false
+  "isSlotQuery": false,
+  "isUpdateRequest": false,
+  "meetingReference": null,
+  "updateFields": null
+}
+
+FOR UPDATE REQUESTS:
+{
+  "isMeetingRequest": false,
+  "isUpdateRequest": true,
+  "meetingReference": "standup" or "meeting with john" or "3pm meeting",
+  "updateFields": {
+    "newTime": "3pm tomorrow",
+    "newTitle": "New Title",
+    "newDescription": "Updated desc",
+    "newAttendees": ["added@email.com"]
+  }
 }
 
 CRITICAL RULES:
 - "schedule", "meet", "meeting", "call", "book" → isMeetingRequest: true
+- "reschedule", "update", "change time", "move", "edit", "modify" → isUpdateRequest: true
 - "zoom" → platform: "zoom" (also: "zom", "zooom")
 - "google", "google meet" → platform: "google" (NOT bare "meet")
 - Slot references: "1st", "first", "slot 1", "#1" → timePreference: "1st slot"
 - Short replies like "zoom", "google", "yes", "ok" → extract platform only, keep isMeetingRequest: true
 - If missing critical info → description: "NEEDS_TIME" or "NEEDS_ATTENDEES" or "NEEDS_PLATFORM_ASK"
 - ALWAYS return valid JSON, no markdown
-
-EXAMPLES:
-"schedule at 1st slot" → {"isMeetingRequest":true,"timePreference":"1st slot","platform":null,"description":"NEEDS_ATTENDEES NEEDS_PLATFORM_ASK"}
-"zoom" (after slots shown) → {"isMeetingRequest":true,"platform":"zoom","description":""}
-"next available slots" → {"isMeetingRequest":false,"isSlotQuery":true}
-"meeting with john tomorrow at 3pm on zoom" → {"title":"Meeting with john","attendees":["john"],"timePreference":"tomorrow at 3pm","platform":"zoom","isMeetingRequest":true}
 
 Return ONLY valid JSON.`;
 
@@ -70,10 +87,10 @@ Return ONLY valid JSON.`;
 
     let jsonString = response.choices[0].message.content.trim();
     jsonString = jsonString.replace(/^```json\s*\n?/, "").replace(/\n?```\s*$/, "")
-                             .replace(/^```\s*\n?/, "").replace(/\n?```\s*$/, "");
+      .replace(/^```\s*\n?/, "").replace(/\n?```\s*$/, "");
     const jsonMatch = jsonString.match(/\{[\s\S]*\}/);
     if (jsonMatch) jsonString = jsonMatch[0];
-    
+
     const meetingDetails = JSON.parse(jsonString);
 
     if (meetingDetails.platform) {
@@ -83,16 +100,13 @@ Return ONLY valid JSON.`;
 
     if (meetingDetails.timePreference) {
       const timeLower = meetingDetails.timePreference.toLowerCase();
-      
-      // Handle flexible time phrases
-      if (timeLower.includes('now') || timeLower.includes('asap') || 
-          timeLower.includes('next available') || timeLower.includes('next slot') ||
-          timeLower.includes('soonest') || timeLower.includes('earliest') ||
-          timeLower.includes('avbl')) {
-        // Schedule 1 hour from now for flexible requests
+
+      if (timeLower.includes('now') || timeLower.includes('asap') ||
+        timeLower.includes('next available') || timeLower.includes('next slot') ||
+        timeLower.includes('soonest') || timeLower.includes('earliest') ||
+        timeLower.includes('avbl')) {
         meetingDetails.suggestedTime = new Date(Date.now() + 60 * 60000);
       } else {
-        // Parse specific date/time
         let parsedDate = chrono.parseDate(meetingDetails.timePreference);
         if (parsedDate) {
           const minTime = new Date(Date.now() + 30 * 60000);
@@ -102,7 +116,6 @@ Return ONLY valid JSON.`;
         }
       }
     }
-    // Don't auto-set suggestedTime if no timePreference - let controller ask user for time
 
     return meetingDetails;
   } catch (error) {
@@ -110,7 +123,6 @@ Return ONLY valid JSON.`;
   }
 };
 
-// Validate meeting data structure
 const validateMeetingData = (meetingData) => {
   return meetingData.title && Array.isArray(meetingData.attendees) && meetingData.attendees.length > 0 && meetingData.duration > 0;
 };

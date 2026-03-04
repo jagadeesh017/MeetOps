@@ -114,10 +114,15 @@ const MeetingSchema = new mongoose.Schema({
     default: null
   },
 
-  
+
   createdAt: {
     type: Date,
     default: Date.now
+  },
+
+  updatedAt: {
+    type: Date,
+    default: null
   }
 });
 

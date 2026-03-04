@@ -53,13 +53,16 @@ export default function AIScheduler({ onClose, onMeetingCreated }) {
 
     try {
       const isDeleteIntent = /(delete|cancel|remove|drop|discard)/i.test(userMessage);
+      const isUpdateIntent = /(reschedule|update|change\s*(time|title|meeting)|move|edit|modify|push|shift)\b/i.test(userMessage);
       const isFreshRequest = /\b(schedule|meeting|call|book)\b/i.test(userMessage) && userMessage.trim().split(/\s+/).length >= 4;
       const conversationHistory = messages
         .map((msg) => `${msg.type === "user" ? "User" : "Assistant"}: ${msg.content}`)
         .join("\n");
       const fullPrompt = (conversationHistory && !isFreshRequest) ? `${conversationHistory}\nUser: ${userMessage}` : userMessage;
 
-      const response = await fetch(`http://localhost:5000/api/ai/${isDeleteIntent ? "delete-meeting" : "schedule-meeting"}`, {
+      const endpoint = isDeleteIntent ? "delete-meeting" : isUpdateIntent ? "update-meeting" : "schedule-meeting";
+
+      const response = await fetch(`http://localhost:5000/api/ai/${endpoint}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -74,8 +77,8 @@ export default function AIScheduler({ onClose, onMeetingCreated }) {
       const data = await response.json();
 
       if (!response.ok) {
-        const msg = data.message || data.error || (isDeleteIntent ? "Failed to delete" : "Failed to schedule");
-        setMessages((prev) => [...prev, { type: "bot", content: msg.length < 100 ? msg : (isDeleteIntent ? "Failed to delete" : "Failed to schedule"), timestamp: new Date() }]);
+        const msg = data.message || data.error || "Something went wrong";
+        setMessages((prev) => [...prev, { type: "bot", content: msg.length < 200 ? msg : "Something went wrong. Please try again.", timestamp: new Date() }]);
         setLoading(false);
         return;
       }
@@ -105,11 +108,23 @@ export default function AIScheduler({ onClose, onMeetingCreated }) {
             timestamp: new Date(),
           },
         ]);
+        if (onMeetingCreated) onMeetingCreated(deleted);
+        setLoading(false);
+        return;
+      }
 
-        if (onMeetingCreated) {
-          onMeetingCreated(deleted);
-        }
-
+      if (data.updatedMeeting) {
+        const updated = data.updatedMeeting;
+        setMessages((prev) => [
+          ...prev,
+          {
+            type: "bot",
+            content: `Done! I've updated "${updated.title}" — now scheduled for ${new Date(updated.startTime).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}. Update notifications sent to attendees.`,
+            timestamp: new Date(),
+            meeting: updated,
+          },
+        ]);
+        if (onMeetingCreated) onMeetingCreated(updated);
         setLoading(false);
         return;
       }
@@ -120,9 +135,9 @@ export default function AIScheduler({ onClose, onMeetingCreated }) {
           ...prev,
           {
             type: "bot",
-            content: `Perfect! I've scheduled your meeting "${meeting.title}" for ${new Date(meeting.startTime).toLocaleDateString('en-US', { 
-              weekday: 'short', 
-              month: 'short', 
+            content: `Perfect! I've scheduled your meeting "${meeting.title}" for ${new Date(meeting.startTime).toLocaleDateString('en-US', {
+              weekday: 'short',
+              month: 'short',
               day: 'numeric',
               hour: '2-digit',
               minute: '2-digit'
@@ -132,9 +147,7 @@ export default function AIScheduler({ onClose, onMeetingCreated }) {
           },
         ]);
 
-        if (onMeetingCreated) {
-          onMeetingCreated(meeting);
-        }
+        if (onMeetingCreated) onMeetingCreated(meeting);
       }
       setLoading(false);
     } catch (err) {
@@ -180,11 +193,10 @@ export default function AIScheduler({ onClose, onMeetingCreated }) {
               className={`flex ${message.type === "user" ? "justify-end" : "justify-start"} animate-fadeIn`}
             >
               <div
-                className={`max-w-xs lg:max-w-md xl:max-w-lg ${
-                  message.type === "user"
+                className={`max-w-xs lg:max-w-md xl:max-w-lg ${message.type === "user"
                     ? "bg-blue-600 hover:bg-blue-700 text-white rounded-3xl rounded-tr-sm px-5 py-3 shadow-md transition"
                     : "bg-gray-100 dark:bg-[#333333] text-gray-900 dark:text-gray-50 rounded-3xl rounded-tl-sm px-5 py-3 shadow-sm"
-                }`}
+                  }`}
               >
                 <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
                 {message.slots && (
@@ -258,8 +270,8 @@ export default function AIScheduler({ onClose, onMeetingCreated }) {
             <div className="flex justify-start">
               <div className="bg-gray-100 dark:bg-[#333333] rounded-3xl rounded-tl-sm px-5 py-3 flex gap-2">
                 <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"></div>
-                <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
-                <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{animationDelay: '0.4s'}}></div>
+                <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
               </div>
             </div>
           )}
@@ -294,7 +306,7 @@ export default function AIScheduler({ onClose, onMeetingCreated }) {
             </button>
           </form>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 text-center">
-            Tip: No need for perfect formatting — just describe it. AI will figure it out.          
+            Tip: No need for perfect formatting — just describe it. AI will figure it out.
           </p>
         </div>
       </div>
