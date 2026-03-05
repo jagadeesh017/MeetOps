@@ -15,8 +15,7 @@ async function saveAndInvite(meetingDocs, invitePayload) {
 
   if (invitePayload && invitePayload.attendees && invitePayload.attendees.length > 0) {
     sendMeetingInvites(invitePayload)
-      .then((result) => console.log(`📧 Invites: sent=${result.sent}, failed=${result.failed}`))
-      .catch((err) => console.error("Failed to send invites:", err && err.message));
+      .catch(() => null);
   }
 
   return created;

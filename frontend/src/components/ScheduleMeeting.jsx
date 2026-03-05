@@ -1,10 +1,11 @@
 import { useState, useContext, useEffect, useRef } from 'react';
 import { AuthContext } from '../context/Authcontext';
 import { createMeeting, updateMeeting, checkAttendeeAvailability } from '../services/api';
-import { getTimezoneList } from '../utils/calendarUtils';
+import { getTimezoneList, getLocalTimezone } from '../utils/calendarUtils';
 import { getIntegrationStatus } from '../services/integrations';
 import api from '../services/api';
 import { useToast } from '../context/ToastContext';
+import moment from 'moment-timezone';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -21,14 +22,16 @@ const INTEGRATION_WARNINGS = {
     zoom: { key: 'zoom', msg: 'Zoom is not connected. Connect it in the dashboard to use Zoom meetings.' },
 };
 
-function toLocalDate(d) {
-    return (d ? new Date(d) : new Date()).toLocaleDateString('en-CA');
+function toLocalDate(d, tz) {
+    if (!d) return moment().tz(tz || 'UTC').format('YYYY-MM-DD');
+    return moment(d).tz(tz || 'UTC').format('YYYY-MM-DD');
 }
 
-function roundedTimeSlot(date) {
-    const d = date ? new Date(date) : new Date();
-    d.setMinutes(Math.ceil(d.getMinutes() / 30) * 30, 0, 0);
-    return d.toTimeString().slice(0, 5);
+function roundedTimeSlot(date, tz) {
+    const d = date ? moment(date).tz(tz || 'UTC') : moment().tz(tz || 'UTC');
+    const mins = Math.ceil(d.minutes() / 30) * 30;
+    d.minutes(mins).seconds(0).milliseconds(0);
+    return d.format('HH:mm');
 }
 
 function addMinutes(timeStr, mins) {
@@ -39,8 +42,8 @@ function addMinutes(timeStr, mins) {
     return d.toTimeString().slice(0, 5);
 }
 
-function buildDateTime(dateStr, timeStr) {
-    return new Date(`${dateStr}T${timeStr}`);
+function buildDateTime(dateStr, timeStr, timezone) {
+    return moment.tz(`${dateStr} ${timeStr}`, 'YYYY-MM-DD HH:mm', timezone).toDate();
 }
 
 function getMeetingField(meeting, field) {
@@ -77,7 +80,11 @@ function SuccessBanner({ meeting, isEditMode }) {
                 </div>
                 <div>
                     <span className="text-xs uppercase tracking-wide text-green-700 dark:text-green-400">Scheduled time</span>
-                    <p className="font-medium">{new Date(getMeetingField(meeting, 'startTime')).toLocaleString()}</p>
+                    <p className="font-medium">
+                        {moment(getMeetingField(meeting, 'startTime'))
+                            .tz(getMeetingField(meeting, 'timezone') || 'UTC')
+                            .format('LLL')}
+                    </p>
                 </div>
                 {getMeetingField(meeting, 'joinUrl') && (
                     <a href={getMeetingField(meeting, 'joinUrl')} target="_blank" rel="noopener noreferrer"
@@ -144,23 +151,34 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
     const [showSuggestions, setShowSuggestions] = useState(false);
 
     const timezones = getTimezoneList();
-    const defaultStart = roundedTimeSlot(initialDate);
+    const tzFromInit = (initialDate && typeof initialDate === 'object' && initialDate.timezone)
+        || getLocalTimezone() || 'Asia/Kolkata';
+    const initDateVal = (initialDate && typeof initialDate === 'object' && initialDate.date)
+        || initialDate;
+
+    const defaultStart = roundedTimeSlot(initDateVal, tzFromInit);
 
     const [formData, setFormData] = useState(() => {
         if (editMeeting) {
-            const s = new Date(editMeeting.startTime), e = new Date(editMeeting.endTime);
+            const tz = editMeeting.timezone || tzFromInit;
+            const s = moment(editMeeting.startTime).tz(tz);
+            const e = moment(editMeeting.endTime).tz(tz);
             return {
-                title: editMeeting.title || '', startDate: s.toLocaleDateString('en-CA'), startTime: s.toTimeString().slice(0, 5),
-                endDate: e.toLocaleDateString('en-CA'), endTime: e.toTimeString().slice(0, 5),
-                timezone: editMeeting.timezone || 'Asia/Kolkata', platform: editMeeting.platform || 'zoom',
+                title: editMeeting.title || '',
+                startDate: s.format('YYYY-MM-DD'),
+                startTime: s.format('HH:mm'),
+                endDate: e.format('YYYY-MM-DD'),
+                endTime: e.format('HH:mm'),
+                timezone: tz, platform: editMeeting.platform || 'zoom',
                 description: editMeeting.description || '', isRecurring: false, recurrencePattern: 'daily',
                 recurrenceMode: 'count', recurrenceEndDate: '', recurrenceCount: 1,
             };
         }
+        const sDateStr = toLocalDate(initDateVal, tzFromInit);
         return {
-            title: '', startDate: toLocalDate(initialDate), startTime: defaultStart,
-            endDate: toLocalDate(initialDate), endTime: addMinutes(defaultStart, 30),
-            timezone: 'Asia/Kolkata', platform: 'zoom', description: '',
+            title: '', startDate: sDateStr, startTime: defaultStart,
+            endDate: sDateStr, endTime: addMinutes(defaultStart, 30),
+            timezone: tzFromInit, platform: 'zoom', description: '',
             isRecurring: false, recurrencePattern: 'daily', recurrenceMode: 'count',
             recurrenceEndDate: '', recurrenceCount: 1,
         };
@@ -242,12 +260,12 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
     };
 
     const getDateTimes = () => ({
-        start: buildDateTime(formData.startDate, formData.startTime),
-        end: buildDateTime(formData.endDate, formData.endTime),
+        start: buildDateTime(formData.startDate, formData.startTime, formData.timezone),
+        end: buildDateTime(formData.endDate, formData.endTime, formData.timezone),
     });
 
     const handleSubmit = async (e, forceIgnoreBusy = false) => {
-        e.preventDefault();
+        if (e) e.preventDefault();
         setError(null);
         setSuccessMeeting(null);
 

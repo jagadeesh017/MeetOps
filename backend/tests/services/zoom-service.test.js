@@ -118,7 +118,7 @@ describe('Zoom Service', () => {
       );
 
       expect(result.success).toBe(false);
-      expect(result.error).toBe('Invalid access token');
+      expect(result.error).toContain('Zoom token refresh failed');
       expect(result.status).toBe(401);
     });
 

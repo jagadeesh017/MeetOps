@@ -3,6 +3,8 @@ const router = express.Router();
 const authController = require('../controllers/authController');
 
 router.post('/login', authController.login);
+router.post('/refresh', authController.refresh);
+router.post('/logout', authController.logout);   // no auth guard — refresh token is proof
 
 const auth = require("../middlewares/authmiddleware");
 const Employee = require("../models/employee");

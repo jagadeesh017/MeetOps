@@ -16,20 +16,50 @@ const getPartsInTZ = (dateInput, tz) => {
 };
 
 const PLATFORM_CONFIG = {
-    zoom: { label: 'Zoom', color: 'bg-blue-100 text-blue-700', dot: 'bg-blue-500', accent: '#2D8CFF' },
-    meet: { label: 'Google Meet', color: 'bg-green-100 text-green-700', dot: 'bg-green-500', accent: '#34A853' },
-    google: { label: 'Google Meet', color: 'bg-green-100 text-green-700', dot: 'bg-green-500', accent: '#34A853' },
-    teams: { label: 'Teams', color: 'bg-indigo-100 text-indigo-700', dot: 'bg-indigo-500', accent: '#6264a7' },
-    other: { label: 'Other', color: 'bg-gray-100 text-gray-600', dot: 'bg-gray-400', accent: '#6264a7' },
+    zoom: { label: 'Zoom', short: 'Z', color: 'bg-blue-100 text-blue-700', dot: 'bg-blue-500', accent: '#2D8CFF' },
+    meet: { label: 'Google Meet', short: 'G', color: 'bg-green-100 text-green-700', dot: 'bg-green-500', accent: '#34A853' },
+    google: { label: 'Google Meet', short: 'G', color: 'bg-green-100 text-green-700', dot: 'bg-green-500', accent: '#34A853' },
+    teams: { label: 'Teams', short: 'T', color: 'bg-indigo-100 text-indigo-700', dot: 'bg-indigo-500', accent: '#6264a7' },
+    other: { label: 'Other', short: 'M', color: 'bg-gray-100 text-gray-600', dot: 'bg-gray-400', accent: '#6264a7' },
 };
 
 function getPlatformStyle(platform) {
     const colors = {
-        zoom: { bg: '#2D8CFF', border: '#1a6fd4', text: '#ffffff' },
-        meet: { bg: '#34A853', border: '#1e7e34', text: '#ffffff' },
-        google: { bg: '#34A853', border: '#1e7e34', text: '#ffffff' },
-        teams: { bg: '#6264a7', border: '#4a4c8a', text: '#ffffff' },
-        other: { bg: '#6b7280', border: '#4b5563', text: '#ffffff' },
+        zoom: {
+            bg: '#2D8CFF',
+            border: '#1a6fd4',
+            text: '#ffffff',
+            pattern: 'repeating-linear-gradient(135deg, rgba(255,255,255,0.07), rgba(255,255,255,0.07) 6px, rgba(255,255,255,0.02) 6px, rgba(255,255,255,0.02) 12px)',
+            badgeBg: 'rgba(9, 62, 120, 0.55)',
+        },
+        meet: {
+            bg: '#34A853',
+            border: '#1e7e34',
+            text: '#ffffff',
+            pattern: 'repeating-linear-gradient(135deg, rgba(255,255,255,0.09), rgba(255,255,255,0.09) 6px, rgba(255,255,255,0.025) 6px, rgba(255,255,255,0.025) 12px)',
+            badgeBg: 'rgba(18, 85, 38, 0.55)',
+        },
+        google: {
+            bg: '#34A853',
+            border: '#1e7e34',
+            text: '#ffffff',
+            pattern: 'repeating-linear-gradient(135deg, rgba(255,255,255,0.09), rgba(255,255,255,0.09) 6px, rgba(255,255,255,0.025) 6px, rgba(255,255,255,0.025) 12px)',
+            badgeBg: 'rgba(18, 85, 38, 0.55)',
+        },
+        teams: {
+            bg: '#6264a7',
+            border: '#4a4c8a',
+            text: '#ffffff',
+            pattern: 'repeating-linear-gradient(135deg, rgba(255,255,255,0.07), rgba(255,255,255,0.07) 6px, rgba(255,255,255,0.02) 6px, rgba(255,255,255,0.02) 12px)',
+            badgeBg: 'rgba(37, 41, 89, 0.55)',
+        },
+        other: {
+            bg: '#6b7280',
+            border: '#4b5563',
+            text: '#ffffff',
+            pattern: 'repeating-linear-gradient(135deg, rgba(255,255,255,0.07), rgba(255,255,255,0.07) 6px, rgba(255,255,255,0.02) 6px, rgba(255,255,255,0.02) 12px)',
+            badgeBg: 'rgba(43, 51, 67, 0.55)',
+        },
     };
     return colors[platform] ?? colors.other;
 }
@@ -178,7 +208,7 @@ export default function CustomCalendar() {
     const [currentDate, setCurrentDate] = useState(new Date());
     const [meetings, setMeetings] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [timezone, setTimezone] = useState('Asia/Kolkata');
+    const [timezone, setTimezone] = useState(getLocalTimezone() || 'Asia/Kolkata');
     const [showScheduleForm, setShowScheduleForm] = useState(false);
     const [selectedSlot, setSelectedSlot] = useState(null);
     const [selectedMeeting, setSelectedMeeting] = useState(null);
@@ -278,9 +308,13 @@ export default function CustomCalendar() {
     };
 
     const handleSlotClick = (day, hour) => {
-        const slotDate = new Date(day);
-        slotDate.setHours(hour, 0, 0, 0);
-        setSelectedSlot(slotDate);
+        const y = day.getFullYear();
+        const m = String(day.getMonth() + 1).padStart(2, '0');
+        const d = String(day.getDate()).padStart(2, '0');
+        const h = String(hour).padStart(2, '0');
+
+        const dateStr = `${y}-${m}-${d}T${h}:00:00`;
+        setSelectedSlot({ date: dateStr, timezone });
         setShowScheduleForm(true);
     };
 
@@ -415,6 +449,7 @@ export default function CustomCalendar() {
                                         const pos = calculateMeetingPosition(meeting, slotHeight);
                                         const { col, totalCols } = overlapLayout[idx];
                                         const ps = getPlatformStyle(meeting.platform);
+                                        const platformMeta = PLATFORM_CONFIG[meeting.platform] || PLATFORM_CONFIG.other;
                                         const isCancelled = meeting.status === 'cancelled';
                                         const isCompleted = !isCancelled && new Date(meeting.endTime) < new Date();
                                         const colW = 100 / totalCols;
@@ -434,7 +469,7 @@ export default function CustomCalendar() {
                                                     color: isCancelled ? '#9ca3af' : isCompleted ? `color-mix(in srgb, ${ps.text} 60%, #9ca3af)` : ps.text,
                                                     opacity: isCancelled ? 0.4 : 1,
                                                     filter: isCancelled ? 'grayscale(1)' : isCompleted ? 'saturate(0.4)' : 'none',
-                                                    backgroundImage: isCompleted ? 'repeating-linear-gradient(135deg, transparent, transparent 4px, rgba(156,163,175,0.1) 4px, rgba(156,163,175,0.1) 6px)' : 'none',
+                                                    backgroundImage: isCompleted ? 'repeating-linear-gradient(135deg, transparent, transparent 4px, rgba(156,163,175,0.1) 4px, rgba(156,163,175,0.1) 6px)' : ps.pattern,
                                                     zIndex: 10 + col,
                                                 }}
                                                 onClick={(e) => {
@@ -442,6 +477,15 @@ export default function CustomCalendar() {
                                                     setSelectedMeeting(meeting);
                                                 }}
                                             >
+                                                {!isCancelled && (
+                                                    <span
+                                                        title={platformMeta.label}
+                                                        className="absolute right-1 top-1 text-[9px] font-bold px-1.5 py-0.5 rounded"
+                                                        style={{ backgroundColor: ps.badgeBg, color: '#fff' }}
+                                                    >
+                                                        {platformMeta.short}
+                                                    </span>
+                                                )}
                                                 <div className={`font-medium truncate flex items-center gap-1 ${isCancelled ? 'line-through' : ''}`}>
                                                     {meeting.isRecurring && <span title="Recurring meeting">🔄</span>}
                                                     {isCancelled && <span title="Cancelled" className="text-[11px]">✕</span>}
@@ -530,6 +574,7 @@ export default function CustomCalendar() {
                                     const pos = calculateMeetingPosition(meeting, slotHeight);
                                     const { col, totalCols } = overlapLayout[idx];
                                     const ps = getPlatformStyle(meeting.platform);
+                                    const platformMeta = PLATFORM_CONFIG[meeting.platform] || PLATFORM_CONFIG.other;
                                     const isCancelled = meeting.status === 'cancelled';
                                     const isCompleted = !isCancelled && new Date(meeting.endTime) < new Date();
                                     const colW = 100 / totalCols;
@@ -549,7 +594,7 @@ export default function CustomCalendar() {
                                                 color: isCancelled ? '#9ca3af' : isCompleted ? `color-mix(in srgb, ${ps.text} 60%, #9ca3af)` : ps.text,
                                                 opacity: isCancelled ? 0.4 : 1,
                                                 filter: isCancelled ? 'grayscale(1)' : isCompleted ? 'saturate(0.4)' : 'none',
-                                                backgroundImage: isCompleted ? 'repeating-linear-gradient(135deg, transparent, transparent 4px, rgba(156,163,175,0.1) 4px, rgba(156,163,175,0.1) 6px)' : 'none',
+                                                backgroundImage: isCompleted ? 'repeating-linear-gradient(135deg, transparent, transparent 4px, rgba(156,163,175,0.1) 4px, rgba(156,163,175,0.1) 6px)' : ps.pattern,
                                                 zIndex: 10 + col,
                                             }}
                                             onClick={(e) => {
@@ -557,6 +602,15 @@ export default function CustomCalendar() {
                                                 setSelectedMeeting(meeting);
                                             }}
                                         >
+                                            {!isCancelled && (
+                                                <span
+                                                    title={platformMeta.label}
+                                                    className="absolute right-1.5 top-1 text-[10px] font-bold px-1.5 py-0.5 rounded"
+                                                    style={{ backgroundColor: ps.badgeBg, color: '#fff' }}
+                                                >
+                                                    {platformMeta.short}
+                                                </span>
+                                            )}
                                             <div className={`font-semibold truncate flex items-center gap-1 ${isCancelled ? 'line-through' : ''}`}>
                                                 {meeting.isRecurring && <span title="Recurring meeting">🔄</span>}
                                                 {isCancelled && <span title="Cancelled" className="text-[11px]">✕</span>}
@@ -630,6 +684,7 @@ export default function CustomCalendar() {
                                 <div className="space-y-1">
                                     {dayMeetings.slice(0, 3).map((meeting, mIdx) => {
                                         const ps = getPlatformStyle(meeting.platform);
+                                        const platformMeta = PLATFORM_CONFIG[meeting.platform] || PLATFORM_CONFIG.other;
                                         const isCancelled = meeting.status === 'cancelled';
                                         const isCompleted = !isCancelled && new Date(meeting.endTime) < new Date();
                                         return (
@@ -643,7 +698,7 @@ export default function CustomCalendar() {
                                                     color: isCancelled ? '#9ca3af' : isCompleted ? `color-mix(in srgb, ${ps.text} 60%, #9ca3af)` : ps.text,
                                                     opacity: isCancelled ? 0.4 : 1,
                                                     filter: isCancelled ? 'grayscale(1)' : isCompleted ? 'saturate(0.4)' : 'none',
-                                                    backgroundImage: isCompleted ? 'repeating-linear-gradient(135deg, transparent, transparent 4px, rgba(156,163,175,0.1) 4px, rgba(156,163,175,0.1) 6px)' : 'none',
+                                                    backgroundImage: isCompleted ? 'repeating-linear-gradient(135deg, transparent, transparent 4px, rgba(156,163,175,0.1) 4px, rgba(156,163,175,0.1) 6px)' : ps.pattern,
                                                     textDecoration: isCancelled ? 'line-through' : 'none',
                                                 }}
                                                 onClick={(e) => {
@@ -651,6 +706,7 @@ export default function CustomCalendar() {
                                                     setSelectedMeeting(meeting);
                                                 }}
                                             >
+                                                {!isCancelled && <span className="mr-1 text-[10px] font-bold">{platformMeta.short}</span>}
                                                 {meeting.isRecurring && <span className="mr-1" title="Recurring meeting">🔄</span>}
                                                 {isCancelled && <span className="mr-0.5">✕</span>}
                                                 {isCompleted && <span className="mr-0.5">✓</span>}
@@ -712,11 +768,11 @@ export default function CustomCalendar() {
                     <select
                         value={timezone}
                         onChange={(e) => setTimezone(e.target.value)}
-                        className="px-2.5 py-1.5 bg-white dark:bg-[#3d3d3d] border border-gray-300 dark:border-[#4a4a4a] rounded text-sm text-gray-700 dark:text-gray-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        className="px-2.5 py-1.5 bg-white dark:bg-[#3d3d3d] border border-gray-300 dark:border-[#4a4a4a] rounded text-sm text-gray-700 dark:text-gray-200 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
                     >
                         {timezones.map(tz => (
                             <option key={tz.value} value={tz.value}>
-                                {tz.label.split('(')[0].trim()}
+                                {tz.label}
                             </option>
                         ))}
                     </select>

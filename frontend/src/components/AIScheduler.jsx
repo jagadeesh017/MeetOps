@@ -1,331 +1,405 @@
-import { useState, useContext, useRef, useEffect } from "react";
-import { AuthContext } from "../context/Authcontext";
+import { useState, useRef, useEffect } from "react";
+import api from "../services/api";
+
+const cleanContent = (text = "") =>
+  text
+    .replace(/<thought>[\s\S]*?<\/thought>/gi, "")
+    .replace(/ACTION:\s*\{[\s\S]*$/i, "")
+    .trim();
+
+const getPlatformMeta = (platform) => {
+  const p = String(platform || "").toLowerCase();
+  if (p === "zoom") return { label: "Zoom", badge: "Z", style: "bg-sky-500/15 text-sky-300 border-sky-400/40" };
+  if (p === "google" || p === "meet") return { label: "Google Meet", badge: "G", style: "bg-emerald-500/15 text-emerald-300 border-emerald-400/40" };
+  return { label: "Meeting", badge: "M", style: "bg-slate-500/15 text-slate-300 border-slate-400/40" };
+};
+
+const BotAvatar = () => (
+  <div className="w-7 h-7 rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center shrink-0 shadow-md">
+    <svg className="w-3.5 h-3.5 text-white" fill="currentColor" viewBox="0 0 20 20">
+      <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z" />
+    </svg>
+  </div>
+);
+
+const UserAvatar = () => (
+  <div className="w-7 h-7 rounded-full bg-gradient-to-br from-pink-500 to-rose-500 flex items-center justify-center shrink-0 shadow-md">
+    <svg className="w-3.5 h-3.5 text-white" fill="currentColor" viewBox="0 0 20 20">
+      <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
+    </svg>
+  </div>
+);
+
+const TypingIndicator = () => (
+  <div className="flex items-end gap-2.5 justify-start" style={{ animation: "mbFadeIn 0.2s ease-out" }}>
+    <BotAvatar />
+    <div className="bg-white dark:bg-[#1e1e2e] border border-gray-100 dark:border-white/10 rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm flex items-center gap-2">
+      <span className="text-xs text-gray-400 dark:text-gray-500">MeetBot is thinking</span>
+      <span className="flex gap-1 ml-0.5">
+        <span className="w-1.5 h-1.5 bg-violet-400 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+        <span className="w-1.5 h-1.5 bg-violet-400 rounded-full animate-bounce" style={{ animationDelay: "160ms" }} />
+        <span className="w-1.5 h-1.5 bg-violet-400 rounded-full animate-bounce" style={{ animationDelay: "320ms" }} />
+      </span>
+    </div>
+  </div>
+);
+
+const MeetingCard = ({ meeting }) => {
+  if (!meeting) return null;
+  const platform = getPlatformMeta(meeting.platform);
+  return (
+    <div className="mt-2.5 rounded-xl overflow-hidden border border-white/20 text-sm bg-gradient-to-br from-white/10 to-white/[0.03]">
+      <div className="px-3 py-2 font-semibold flex items-center justify-between gap-2 text-xs border-b border-white/10">
+        <div className="flex items-center gap-1.5 min-w-0">
+        <span>📅</span>
+        <span className="truncate">{meeting.title}</span>
+        </div>
+        <span className={`shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-semibold ${platform.style}`}>
+          <span className="w-4 h-4 rounded-full bg-white/20 inline-flex items-center justify-center text-[9px]">{platform.badge}</span>
+          {platform.label}
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-px bg-white/10">
+        <div className="bg-white/5 px-3 py-2">
+          <p className="text-xs opacity-50 mb-0.5">When</p>
+          <p className="font-medium text-xs leading-snug">
+            {new Date(meeting.startTime).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+            <br />
+            {new Date(meeting.startTime).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
+          </p>
+        </div>
+        <div className="bg-white/5 px-3 py-2">
+          <p className="text-xs opacity-50 mb-0.5">Platform</p>
+          <p className="font-medium text-xs capitalize">{platform.label}</p>
+          {meeting.duration && <p className="text-xs opacity-50">{meeting.duration} min</p>}
+        </div>
+      </div>
+      {meeting.attendees?.length > 0 && (
+        <div className="bg-white/5 px-3 py-2">
+          <p className="text-xs opacity-50 mb-1">Attendees</p>
+          <div className="flex flex-wrap gap-1">
+            {meeting.attendees.slice(0, 6).map((a, i) => (
+              <span key={i} className="text-xs bg-white/20 rounded-full px-2 py-0.5">
+                {typeof a === "string" ? a.split("@")[0] : a.name || a.email?.split("@")[0] || "—"}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+      {meeting.joinUrl && (
+        <a
+          href={meeting.joinUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-2 px-3 py-2 bg-white/10 hover:bg-white/20 transition text-xs font-medium"
+        >
+          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4m-4-6l6 6m0 0l-6 6m6-6H3" />
+          </svg>
+          Join Meeting
+        </a>
+      )}
+    </div>
+  );
+};
+
+const SlotList = ({ slots }) => (
+  <div className="mt-2.5 space-y-1.5">
+    {slots.map((s, i) => (
+      <div key={i} className="flex items-center gap-2.5 bg-white/10 rounded-xl px-3 py-2 text-xs font-medium">
+        <span className="w-5 h-5 flex items-center justify-center bg-white/25 rounded-full text-xs font-bold shrink-0">
+          {i + 1}
+        </span>
+        {s.formatted || s.time || s}
+      </div>
+    ))}
+  </div>
+);
+
+const MeetingList = ({ meetings }) => (
+  <div className="mt-2.5 space-y-1.5">
+    {meetings.slice(0, 5).map((m, i) => (
+      <div key={i} className="flex items-start gap-2.5 bg-white/10 rounded-xl px-3 py-2.5 text-xs">
+        <span className="font-bold w-4 shrink-0 opacity-60 mt-0.5">{i + 1}.</span>
+        <div className="min-w-0">
+          <p className="font-semibold leading-tight truncate">{m.title}</p>
+          <p className="opacity-60 mt-0.5">
+            {new Date(m.startTime).toLocaleString("en-US", {
+              weekday: "short", month: "short", day: "numeric", year: "numeric",
+              hour: "2-digit", minute: "2-digit",
+            })}
+          </p>
+        </div>
+      </div>
+    ))}
+  </div>
+);
+
+const MessageBubble = ({ message }) => {
+  const isUser = message.type === "user";
+  const content = cleanContent(message.content || "");
+
+  return (
+    <div
+      className={`flex items-end gap-2.5 ${isUser ? "justify-end" : "justify-start"}`}
+      style={{ animation: "mbFadeIn 0.22s ease-out" }}
+    >
+      {!isUser && <BotAvatar />}
+
+      <div
+        className={`max-w-[78%] ${
+          isUser
+            ? "bg-gradient-to-br from-violet-600 to-indigo-600 text-white rounded-2xl rounded-br-sm shadow-md shadow-violet-900/30"
+            : "bg-white dark:bg-[#1e1e2e] text-gray-900 dark:text-gray-100 rounded-2xl rounded-bl-sm shadow-sm border border-gray-100 dark:border-white/8"
+        } px-4 py-3`}
+      >
+        {content && (
+          <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{content}</p>
+        )}
+
+        {message.meeting && <MeetingCard meeting={message.meeting} />}
+        {message.slots?.length > 0 && <SlotList slots={message.slots} />}
+        {message.meetings?.length > 0 && <MeetingList meetings={message.meetings} />}
+
+        <p className={`text-xs mt-2 opacity-35 ${isUser ? "text-right" : ""}`}>
+          {new Date(message.timestamp || Date.now()).toLocaleTimeString("en-US", {
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
+        </p>
+      </div>
+
+      {isUser && <UserAvatar />}
+    </div>
+  );
+};
+
+const QUICK_PROMPTS = [
+  { icon: "📅", label: "Meetings today",    text: "What meetings do I have today?" },
+  { icon: "⏭️", label: "Next meeting",      text: "When is my next meeting?" },
+  { icon: "🕐", label: "Find free slots",   text: "Find my next available time slots" },
+  { icon: "📋", label: "All upcoming",      text: "List all my upcoming meetings" },
+  { icon: "✅", label: "Schedule meeting",  text: "Schedule a meeting" },
+  { icon: "🗑️", label: "Cancel meeting",   text: "Cancel a meeting" },
+];
 
 export default function AIScheduler({ onClose, onMeetingCreated }) {
-  const { token } = useContext(AuthContext);
   const [messages, setMessages] = useState([
     {
       type: "bot",
-      content: "Hi! I'm your AI Meeting Assistant. I can help you schedule meetings effortlessly. Just describe what you need, and I'll handle the details!",
+      content:
+        "Hey! 👋 I'm MeetBot, your AI meeting assistant.\n\nI have full access to your calendar. Ask me to schedule, reschedule, cancel, or check your meetings — just type naturally!",
       timestamp: new Date(),
     },
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const messagesEndRef = useRef(null);
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+  const inputRef = useRef(null);
+  const textareaRef = useRef(null);
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
 
-  const handleSendMessage = async (e) => {
-    e.preventDefault();
-    if (!input.trim() || loading) return;
-
-    const userMessage = input.trim();
-    setInput("");
-    setMessages((prev) => [
-      ...prev,
-      {
-        type: "user",
-        content: userMessage,
-        timestamp: new Date(),
-      },
-    ]);
-
-    if (!token) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          type: "bot",
-          content: "Authentication error - please login again",
-          timestamp: new Date(),
-        },
-      ]);
-      return;
+  const resetTextareaHeight = () => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
     }
+  };
 
+  const sendMessage = async (textOverride) => {
+    const messageText = typeof textOverride === "string" ? textOverride : input.trim();
+    if (!messageText || loading) return;
+
+    const historySnapshot = [...messages];
+    const userMsg = { type: "user", content: messageText, timestamp: new Date() };
+
+    setMessages((prev) => [...prev, userMsg]);
+    setInput("");
+    resetTextareaHeight();
     setLoading(true);
 
     try {
-      const isDeleteIntent = /(delete|cancel|remove|drop|discard)/i.test(userMessage);
-      const isUpdateIntent = /(reschedule|update|change\s*(time|title|meeting)|move|edit|modify|push|shift)\b/i.test(userMessage);
-      const isFreshRequest = /\b(schedule|meeting|call|book)\b/i.test(userMessage) && userMessage.trim().split(/\s+/).length >= 4;
-      const conversationHistory = messages
-        .map((msg) => `${msg.type === "user" ? "User" : "Assistant"}: ${msg.content}`)
-        .join("\n");
-      const fullPrompt = (conversationHistory && !isFreshRequest) ? `${conversationHistory}\nUser: ${userMessage}` : userMessage;
-
-      const endpoint = isDeleteIntent ? "delete-meeting" : isUpdateIntent ? "update-meeting" : "schedule-meeting";
-
-      const response = await fetch(`http://localhost:5000/api/ai/${endpoint}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          prompt: fullPrompt,
-          contextAware: true,
-        }),
+      const res = await api.post("/api/ai/chat", {
+        prompt: messageText,
+        conversationHistory: historySnapshot,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       });
 
-      const data = await response.json();
+      const data = res.data;
 
-      if (!response.ok) {
-        const msg = data.message || data.error || "Something went wrong";
-        setMessages((prev) => [...prev, { type: "bot", content: msg.length < 200 ? msg : "Something went wrong. Please try again.", timestamp: new Date() }]);
-        setLoading(false);
-        return;
-      }
+      if (data.success) {
+        const rawText = data.reply || data.message || "";
+        const botContent = cleanContent(rawText) || "Done! Is there anything else?";
 
-      if (data.availableSlots) {
-        const fmt = (s) => new Date(s).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+        const botMsg = {
+          type: "bot",
+          content: botContent,
+          timestamp: new Date(),
+          meeting: data.meeting || null,
+          slots: data.slots?.length ? data.slots : null,
+          meetings: data.meetings?.length ? data.meetings : null,
+        };
+
+        setMessages((prev) => [...prev, botMsg]);
+
+        if (data.meeting && onMeetingCreated) {
+          onMeetingCreated(data.meeting);
+        }
+      } else {
+        const friendlyMsg =
+          data.code === "rate_limit"
+            ? "I'm a little busy right now. Please try again in a moment."
+            : "Something went wrong on my end. Please try again.";
         setMessages((prev) => [
           ...prev,
-          {
-            type: "bot",
-            content: "Here are your next 4 available slots:",
-            timestamp: new Date(),
-            slots: data.availableSlots.map(fmt),
-          },
+          { type: "bot", content: friendlyMsg, timestamp: new Date() },
         ]);
-        setLoading(false);
-        return;
       }
-
-      if (data.deletedMeeting) {
-        const deleted = data.deletedMeeting;
-        setMessages((prev) => [
-          ...prev,
-          {
-            type: "bot",
-            content: `Done. I've cancelled "${deleted.title}" scheduled for ${new Date(deleted.startTime).toLocaleString()}.`,
-            timestamp: new Date(),
-          },
-        ]);
-        if (onMeetingCreated) onMeetingCreated(deleted);
-        setLoading(false);
-        return;
-      }
-
-      if (data.updatedMeeting) {
-        const updated = data.updatedMeeting;
-        setMessages((prev) => [
-          ...prev,
-          {
-            type: "bot",
-            content: `Done! I've updated "${updated.title}" — now scheduled for ${new Date(updated.startTime).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}. Update notifications sent to attendees.`,
-            timestamp: new Date(),
-            meeting: updated,
-          },
-        ]);
-        if (onMeetingCreated) onMeetingCreated(updated);
-        setLoading(false);
-        return;
-      }
-
-      const meeting = data.meeting;
-      if (meeting && meeting.title && meeting.startTime) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            type: "bot",
-            content: `Perfect! I've scheduled your meeting "${meeting.title}" for ${new Date(meeting.startTime).toLocaleDateString('en-US', {
-              weekday: 'short',
-              month: 'short',
-              day: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit'
-            })} on ${meeting.platform}. Invitations have been sent to all attendees!`,
-            timestamp: new Date(),
-            meeting: meeting,
-          },
-        ]);
-
-        if (onMeetingCreated) onMeetingCreated(meeting);
-      }
-      setLoading(false);
-    } catch (err) {
+    } catch (error) {
+      const code = error?.response?.data?.code;
+      const friendlyMsg =
+        code === "rate_limit"
+          ? "I'm a little busy right now. Please try again in a moment."
+          : "Sorry, I couldn't reach the server. Please check your connection and try again.";
       setMessages((prev) => [
         ...prev,
-        {
-          type: "bot",
-          content: `${err.message || "Something went wrong. Please try again."}`,
-          timestamp: new Date(),
-        },
+        { type: "bot", content: friendlyMsg, timestamp: new Date() },
       ]);
+    } finally {
       setLoading(false);
     }
   };
 
+  const handleTextareaChange = (e) => {
+    setInput(e.target.value);
+    e.target.style.height = "auto";
+    e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  };
+
+  const showQuickPrompts = messages.length === 1 && !loading;
+
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-md flex items-center justify-center z-50 p-4">
-      <div className="w-full max-w-2xl h-[80vh] max-h-screen bg-white dark:bg-[#1a1a1a] rounded-2xl shadow-2xl overflow-hidden flex flex-col">
-        <div className="bg-white dark:bg-[#1f1f1f] px-6 py-4 flex justify-between items-center shrink-0 border-b border-gray-200 dark:border-[#3a3a3a]">
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
-              <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+    <>
+      <style>{`
+        @keyframes mbFadeIn {
+          from { opacity: 0; transform: translateY(6px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        .mb-scroll::-webkit-scrollbar { width: 4px; }
+        .mb-scroll::-webkit-scrollbar-track { background: transparent; }
+        .mb-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: 99px; }
+        .mb-textarea { resize: none; outline: none; overflow: hidden; }
+      `}</style>
+
+      <div className="fixed inset-0 z-50 bg-slate-900/35 backdrop-blur-[1px] p-2 sm:p-4 flex items-end sm:items-center sm:justify-end">
+      <div className="relative flex flex-col w-full sm:w-[430px] h-[78vh] sm:h-[86vh] max-h-[760px] overflow-hidden rounded-2xl border border-white/15 bg-gradient-to-b from-[#15192b] via-[#12172a] to-[#0f1425] shadow-2xl shadow-black/50">
+
+        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-[#11172a] shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-900/30">
+              <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
                 <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z" />
               </svg>
-              Meeting Assistant
-            </h2>
-            <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">Powered by AI</p>
+            </div>
+            <div>
+              <h2 className="text-white font-semibold text-sm leading-none">MeetBot</h2>
+              <p className="text-cyan-200/85 text-xs mt-0.5">Scheduling Assistant</p>
+            </div>
           </div>
-          <button
-            onClick={onClose}
-            className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors p-2 hover:bg-gray-100 dark:hover:bg-[#2a2a2a] rounded-lg"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-2">
+            <span className="hidden sm:inline-flex items-center gap-1.5 text-[11px] text-emerald-300 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-400/25 font-medium">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Online
+            </span>
+            <button
+              onClick={onClose}
+              aria-label="Close"
+              className="text-gray-400 hover:text-white transition-colors p-1.5 hover:bg-white/10 rounded-lg"
+            >
+              <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-6 bg-linear-to-b from-white to-gray-50 dark:from-[#252525] dark:to-[#1f1f1f] space-y-4 relative">
-          {messages.map((message, idx) => (
-            <div
-              key={idx}
-              className={`flex ${message.type === "user" ? "justify-end" : "justify-start"} animate-fadeIn`}
-            >
-              <div
-                className={`max-w-xs lg:max-w-md xl:max-w-lg ${message.type === "user"
-                    ? "bg-blue-600 hover:bg-blue-700 text-white rounded-3xl rounded-tr-sm px-5 py-3 shadow-md transition"
-                    : "bg-gray-100 dark:bg-[#333333] text-gray-900 dark:text-gray-50 rounded-3xl rounded-tl-sm px-5 py-3 shadow-sm"
-                  }`}
-              >
-                <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
-                {message.slots && (
-                  <div className="mt-3 space-y-2">
-                    {message.slots.map((slot, i) => (
-                      <div key={i} className="flex items-center gap-2 bg-white/10 rounded-lg px-3 py-2 text-sm font-medium">
-                        <span className="w-5 h-5 flex items-center justify-center bg-white/20 rounded-full text-xs font-bold shrink-0">{i + 1}</span>
-                        {slot}
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {message.meeting && (
-                  <div className="mt-4 pt-4 border-t border-white/20 space-y-3">
-                    <div className="bg-white/10 backdrop-blur-sm rounded-lg p-3">
-                      <p className="text-xs opacity-75 mb-1">Title</p>
-                      <p className="font-semibold text-sm">{message.meeting.title}</p>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="bg-white/10 backdrop-blur-sm rounded-lg p-2">
-                        <p className="text-xs opacity-75 mb-1">Platform</p>
-                        <p className="font-semibold text-sm capitalize">{message.meeting.platform}</p>
-                      </div>
-                      <div className="bg-white/10 backdrop-blur-sm rounded-lg p-2">
-                        <p className="text-xs opacity-75 mb-1">Duration</p>
-                        <p className="font-semibold text-sm">{message.meeting.duration} min</p>
-                      </div>
-                    </div>
-                    <div className="bg-white/10 backdrop-blur-sm rounded-lg p-2">
-                      <p className="text-xs opacity-75 mb-1">When</p>
-                      <p className="font-semibold text-sm">
-                        {new Date(message.meeting.startTime).toLocaleDateString('en-US', {
-                          weekday: 'short',
-                          month: 'short',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })}
-                      </p>
-                    </div>
-                    <div className="bg-white/10 backdrop-blur-sm rounded-lg p-2">
-                      <p className="text-xs opacity-75 mb-2">Attendees</p>
-                      <div className="flex flex-wrap gap-1">
-                        {message.meeting.attendees.map((attendee, i) => (
-                          <span key={i} className="text-xs bg-white/20 rounded-full px-2 py-1">
-                            {attendee.split('@')[0]}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                    {message.meeting.meetingLink && (
-                      <a
-                        href={message.meeting.meetingLink}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 text-xs font-semibold bg-white/20 hover:bg-white/30 rounded-lg px-3 py-2 transition-colors mt-2"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4m-4-6l6 6m0 0l-6 6m6-6H3" />
-                        </svg>
-                        Join Meeting
-                      </a>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
+        <div className="flex-1 overflow-y-auto px-3.5 py-3.5 space-y-3 mb-scroll">
+          {messages.map((msg, idx) => (
+            <MessageBubble key={idx} message={msg} />
           ))}
-
-          {loading && (
-            <div className="flex justify-start">
-              <div className="bg-gray-100 dark:bg-[#333333] rounded-3xl rounded-tl-sm px-5 py-3 flex gap-2">
-                <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"></div>
-                <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
-              </div>
-            </div>
-          )}
-
+          {loading && <TypingIndicator />}
           <div ref={messagesEndRef} />
         </div>
 
-        <div className="shrink-0 bg-white dark:bg-[#2a2a2a] border-t border-gray-200 dark:border-[#3a3a3a] p-4">
-          <form onSubmit={handleSendMessage} className="flex gap-3">
-            <input
-              type="text"
+        {showQuickPrompts && (
+          <div className="px-3.5 pb-2.5 shrink-0" style={{ animation: "mbFadeIn 0.3s ease-out" }}>
+            <p className="text-xs text-gray-500 mb-2 px-0.5 font-medium tracking-wide uppercase">
+              Quick actions
+            </p>
+            <div className="grid grid-cols-2 gap-1.5">
+              {QUICK_PROMPTS.map((q, i) => (
+                <button
+                  key={i}
+                  onClick={() => sendMessage(q.text)}
+                  className="flex items-center gap-2 text-left text-xs bg-white/5 hover:bg-white/10 border border-white/10 hover:border-cyan-400/45 text-gray-300 hover:text-white px-3 py-2 rounded-xl transition-all duration-150"
+                >
+                  <span className="shrink-0">{q.icon}</span>
+                  <span className="truncate">{q.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="shrink-0 px-3.5 pb-3.5 pt-2.5 border-t border-white/10 bg-[#11172a]">
+          <div className="flex items-end gap-2 bg-white/8 border border-white/12 hover:border-white/20 focus-within:border-cyan-500/45 focus-within:bg-white/10 rounded-2xl px-3.5 py-2.5 transition-all duration-200">
+            <textarea
+              ref={(el) => {
+                inputRef.current = el;
+                textareaRef.current = el;
+              }}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Ex: 45-min project discussion tomorrow at 11 AM on Google Meet"
+              rows={1}
+              onChange={handleTextareaChange}
+              onKeyDown={handleKeyDown}
+              placeholder="Ask me about your meetings…"
               disabled={loading}
-              className="flex-1 bg-gray-100 dark:bg-[#3a3a3a] text-gray-900 dark:text-white rounded-full px-5 py-3 text-sm placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white dark:focus:bg-[#404040] transition-colors disabled:opacity-50"
+              className="mb-textarea flex-1 bg-transparent text-sm text-white placeholder-gray-400 leading-relaxed py-0.5 disabled:opacity-50 min-h-[22px] w-full"
             />
             <button
-              type="submit"
+              onClick={() => sendMessage()}
               disabled={loading || !input.trim()}
-              className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 dark:disabled:bg-gray-700 text-white rounded-full p-3 transition-all duration-200 disabled:cursor-not-allowed shrink-0"
+              aria-label="Send message"
+              className="shrink-0 w-8 h-8 flex items-center justify-center rounded-xl bg-gradient-to-br from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 disabled:from-gray-600 disabled:to-gray-700 disabled:opacity-40 text-white transition-all duration-200 shadow-sm hover:shadow-cyan-500/30 disabled:cursor-not-allowed"
             >
               {loading ? (
-                <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
               ) : (
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                  <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5.951-1.429 5.951 1.429a1 1 0 001.169-1.409l-7-14z" />
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                 </svg>
               )}
             </button>
-          </form>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 text-center">
-            Tip: No need for perfect formatting — just describe it. AI will figure it out.
+          </div>
+          <p className="text-xs text-gray-600 mt-1.5 text-center select-none">
+            Enter to send · Shift+Enter for new line
           </p>
         </div>
-      </div>
 
-      <style>{`
-        @keyframes fadeIn {
-          from {
-            opacity: 0;
-            transform: translateY(10px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-        .animate-fadeIn {
-          animation: fadeIn 0.3s ease-out;
-        }
-      `}</style>
-    </div>
+      </div>
+      </div>
+    </>
   );
 }

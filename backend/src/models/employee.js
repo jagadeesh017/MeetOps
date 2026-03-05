@@ -26,7 +26,10 @@ const EmployeeSchema = new mongoose.Schema({
   zoomRefreshToken: { type: String, default: null },
   zoomAccessToken: { type: String, default: null },
   zoomConnected: { type: Boolean, default: false },
-  zoomEmail: { type: String, default: null }
+  zoomEmail: { type: String, default: null },
+
+  // Auth refresh token (hashed)
+  refreshToken: { type: String, default: null },
 });
 
 module.exports = mongoose.model('Employee', EmployeeSchema);

@@ -25,15 +25,21 @@ export default function Login() {
     try {
       const res = await api.post("/auth/login", { email, password });
 
+      const { accessToken, refreshToken, user: userData } = res.data;
+
+      // Access token: short-lived, session-scoped
+      // Refresh token: persisted based on "remember me"
       if (remember) {
-        localStorage.setItem("token", res.data.token);
+        localStorage.setItem("token", accessToken);
+        localStorage.setItem("refreshToken", refreshToken);
       } else {
-        sessionStorage.setItem("token", res.data.token);
+        sessionStorage.setItem("token", accessToken);
+        sessionStorage.setItem("refreshToken", refreshToken);
       }
 
-      setToken(res.data.token);
-      setUser({ email });
-      window.location.href = "/dashboard";
+      setToken(accessToken);
+      setUser(userData || { email });
+      window.location.href = "/";
     } catch (err) {
       setError(err.response?.data?.message || "Login failed");
       setLoading(false);

@@ -1,7 +1,7 @@
 const Meeting = require("../models/meeting");
 const Employee = require("../models/employee");
 
-const { createZoomMeeting, refreshZoomToken, deleteZoomMeeting, updateZoomMeeting } = require("../services/zoom-service");
+const { createZoomMeeting, deleteZoomMeeting, updateZoomMeeting } = require("../services/zoom-service");
 const { createGoogleMeetMeeting, deleteGoogleMeetEvent, updateGoogleMeetEvent } = require("../services/google-meet-service");
 const { saveAndInvite } = require("../services/meetingService");
 const { sendMeetingCancellations, sendMeetingUpdates } = require("../services/email-invite-service");
@@ -45,13 +45,22 @@ async function createMeetingLink(platform, data, user) {
     if (!user.zoomConnected) return { success: false, error: "Zoom not connected" };
 
     let result = await createZoomMeeting(data, user.zoomAccessToken, user.zoomRefreshToken);
-
-    if (!result.success && result.status === 401 && user.zoomRefreshToken) {
-      const tokens = await refreshZoomToken(user.zoomRefreshToken);
-      user.zoomAccessToken = tokens.access_token;
-      if (tokens.refresh_token) user.zoomRefreshToken = tokens.refresh_token;
+    // If tokens were rotated by another request, retry once with latest tokens from DB.
+    if (!result.success && result.status === 400 && typeof result.error === "string" && result.error.toLowerCase().includes("refresh")) {
+      const latestUser = await Employee.findById(user._id);
+      if (latestUser?.zoomRefreshToken && latestUser.zoomRefreshToken !== user.zoomRefreshToken) {
+        result = await createZoomMeeting(data, latestUser.zoomAccessToken, latestUser.zoomRefreshToken);
+        if (result.success && result.newTokens) {
+          latestUser.zoomAccessToken = result.newTokens.access_token;
+          if (result.newTokens.refresh_token) latestUser.zoomRefreshToken = result.newTokens.refresh_token;
+          await latestUser.save();
+        }
+      }
+    }
+    if (result.success && result.newTokens) {
+      user.zoomAccessToken = result.newTokens.access_token;
+      if (result.newTokens.refresh_token) user.zoomRefreshToken = result.newTokens.refresh_token;
       await user.save();
-      result = await createZoomMeeting(data, user.zoomAccessToken, user.zoomRefreshToken);
     }
 
     return result;
@@ -81,7 +90,19 @@ async function cancelExternalMeeting(meeting, user) {
   if (!meeting.externalId) return { success: true, skipped: true };
 
   if (meeting.platform === "zoom") {
-    const result = await deleteZoomMeeting(meeting.externalId, user.zoomAccessToken, user.zoomRefreshToken);
+    let result = await deleteZoomMeeting(meeting.externalId, user.zoomAccessToken, user.zoomRefreshToken);
+    // If refresh failed with 400, another request may have rotated tokens; retry with latest DB tokens once.
+    if (!result.success && result.status === 400 && typeof result.error === "string" && result.error.toLowerCase().includes("refresh")) {
+      const latestUser = await Employee.findById(user._id);
+      if (latestUser?.zoomRefreshToken && latestUser.zoomRefreshToken !== user.zoomRefreshToken) {
+        result = await deleteZoomMeeting(meeting.externalId, latestUser.zoomAccessToken, latestUser.zoomRefreshToken);
+        if (result.success && result.newTokens) {
+          latestUser.zoomAccessToken = result.newTokens.access_token;
+          if (result.newTokens.refresh_token) latestUser.zoomRefreshToken = result.newTokens.refresh_token;
+          await latestUser.save();
+        }
+      }
+    }
     if (result.success && result.newTokens) {
       user.zoomAccessToken = result.newTokens.access_token;
       if (result.newTokens.refresh_token) user.zoomRefreshToken = result.newTokens.refresh_token;
@@ -243,7 +264,6 @@ exports.cancelMeeting = async (req, res) => {
       return res.status(502).json({ message: cancelResult.error || "Failed to cancel on platform" });
     }
 
-
     meeting.status = "cancelled";
     meeting.cancelledAt = new Date();
     meeting.cancelledBy = user.email;
@@ -259,8 +279,7 @@ exports.cancelMeeting = async (req, res) => {
         description: meeting.description || "",
         platform: meeting.platform,
       })
-        .then((result) => console.log(`📧 Cancellations: sent=${result.sent}, failed=${result.failed}`))
-        .catch((err) => console.error("Failed to send cancellation emails:", err && err.message));
+        .catch(() => null);
     }
 
     return res.json({ success: true, message: "Meeting cancelled", meeting });
@@ -273,7 +292,18 @@ async function updateExternalMeeting(meeting, updateData, user) {
   if (!meeting.externalId) return { success: true, skipped: true };
 
   if (meeting.platform === "zoom") {
-    const result = await updateZoomMeeting(meeting.externalId, updateData, user.zoomAccessToken, user.zoomRefreshToken);
+    let result = await updateZoomMeeting(meeting.externalId, updateData, user.zoomAccessToken, user.zoomRefreshToken);
+    if (!result.success && result.status === 400 && typeof result.error === "string" && result.error.toLowerCase().includes("refresh")) {
+      const latestUser = await Employee.findById(user._id);
+      if (latestUser?.zoomRefreshToken && latestUser.zoomRefreshToken !== user.zoomRefreshToken) {
+        result = await updateZoomMeeting(meeting.externalId, updateData, latestUser.zoomAccessToken, latestUser.zoomRefreshToken);
+        if (result.success && result.newTokens) {
+          latestUser.zoomAccessToken = result.newTokens.access_token;
+          if (result.newTokens.refresh_token) latestUser.zoomRefreshToken = result.newTokens.refresh_token;
+          await latestUser.save();
+        }
+      }
+    }
     if (result.success && result.newTokens) {
       user.zoomAccessToken = result.newTokens.access_token;
       if (result.newTokens.refresh_token) user.zoomRefreshToken = result.newTokens.refresh_token;
@@ -383,8 +413,7 @@ exports.updateMeeting = async (req, res) => {
         joinUrl: meeting.joinUrl,
         platform: meeting.platform,
       })
-        .then((result) => console.log(`📧 Updates: sent=${result.sent}, failed=${result.failed}`))
-        .catch((err) => console.error("Failed to send update emails:", err && err.message));
+        .catch(() => null);
     }
 
     return res.json({ success: true, message: "Meeting updated", meeting });

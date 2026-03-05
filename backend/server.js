@@ -1,8 +1,8 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
-const meetingRoutes = require("./src/routes/meetingroutes");
-const authRoutes = require("./src/routes/auth.route");
+const meetingRoutes = require("./src/routes/meetingRoutes");
+const authRoutes = require("./src/routes/authRoutes");
 const integrationRoutes = require("./src/routes/integrationRoutes");
 const aiRoutes = require("./src/routes/aiRoutes");
 const connectDB = require("./src/config/db");
