@@ -1,126 +1,6 @@
 const Meeting = require("../models/meeting");
 const Employee = require("../models/employee");
-
-const { createZoomMeeting, deleteZoomMeeting, updateZoomMeeting } = require("../services/zoom-service");
-const { createGoogleMeetMeeting, deleteGoogleMeetEvent, updateGoogleMeetEvent } = require("../services/google-meet-service");
-const { saveAndInvite } = require("../services/meetingService");
-const { sendMeetingCancellations, sendMeetingUpdates } = require("../services/email-invite-service");
-const { hasConflict, checkAttendeesConflicts } = require("../services/conflictService");
-const { readPolicy, assertWithinWorkingPolicy, hasBufferConflict } = require("../services/user-settings-policy");
-const { generateSlots } = require("../utilities/recurrence");
-
-const DEFAULT_TIMEZONE = "IST";
-
-
-function normalizeAttendees(raw) {
-  if (!Array.isArray(raw)) return [];
-  const emailRegex = /\S+@\S+\.\S+/;
-
-  return raw
-    .map((a) => {
-      if (!a) return null;
-      if (typeof a === "string") {
-        const email = a.trim().toLowerCase();
-        return emailRegex.test(email) ? { email } : null;
-      }
-      if (typeof a === "object") {
-        const email = (a.email || "").trim().toLowerCase();
-        if (!emailRegex.test(email)) return null;
-        return { email, name: a.name || a.displayName || undefined };
-      }
-      return null;
-    })
-    .filter(Boolean)
-    .reduce((acc, cur) => {
-      if (!acc.find((x) => x.email === cur.email)) acc.push(cur);
-      return acc;
-    }, []);
-}
-
-function buildInvitePayload({ title, startTime, endTime, organizerEmail, attendees, description, joinUrl, platform }) {
-  return { title, startTime, endTime, organizerEmail, attendees, description: description || "", joinUrl, platform };
-}
-
-async function createMeetingLink(platform, data, user) {
-  if (platform === "zoom") {
-    if (!user.zoomConnected) return { success: false, error: "Zoom not connected" };
-
-    let result = await createZoomMeeting(data, user.zoomAccessToken, user.zoomRefreshToken);
-    // If tokens were rotated by another request, retry once with latest tokens from DB.
-    if (!result.success && result.status === 400 && typeof result.error === "string" && result.error.toLowerCase().includes("refresh")) {
-      const latestUser = await Employee.findById(user._id);
-      if (latestUser?.zoomRefreshToken && latestUser.zoomRefreshToken !== user.zoomRefreshToken) {
-        result = await createZoomMeeting(data, latestUser.zoomAccessToken, latestUser.zoomRefreshToken);
-        if (result.success && result.newTokens) {
-          latestUser.zoomAccessToken = result.newTokens.access_token;
-          if (result.newTokens.refresh_token) latestUser.zoomRefreshToken = result.newTokens.refresh_token;
-          await latestUser.save();
-        }
-      }
-    }
-    if (result.success && result.newTokens) {
-      user.zoomAccessToken = result.newTokens.access_token;
-      if (result.newTokens.refresh_token) user.zoomRefreshToken = result.newTokens.refresh_token;
-      await user.save();
-    }
-
-    return result;
-  }
-
-  if (platform === "meet" || platform === "google") {
-    if (!user.googleConnected) return { success: false, error: "Google Meet not connected" };
-
-    const result = await createGoogleMeetMeeting(data, {
-      refreshToken: user.googleRefreshToken,
-      accessToken: user.googleAccessToken,
-    });
-
-    if (result.success && result.newTokens) {
-      if (result.newTokens.access_token) user.googleAccessToken = result.newTokens.access_token;
-      if (result.newTokens.refresh_token) user.googleRefreshToken = result.newTokens.refresh_token;
-      await user.save();
-    }
-
-    return result;
-  }
-
-  return { success: false, error: `Platform "${platform}" not supported` };
-}
-
-async function cancelExternalMeeting(meeting, user) {
-  if (!meeting.externalId) return { success: true, skipped: true };
-
-  if (meeting.platform === "zoom") {
-    let result = await deleteZoomMeeting(meeting.externalId, user.zoomAccessToken, user.zoomRefreshToken);
-    // If refresh failed with 400, another request may have rotated tokens; retry with latest DB tokens once.
-    if (!result.success && result.status === 400 && typeof result.error === "string" && result.error.toLowerCase().includes("refresh")) {
-      const latestUser = await Employee.findById(user._id);
-      if (latestUser?.zoomRefreshToken && latestUser.zoomRefreshToken !== user.zoomRefreshToken) {
-        result = await deleteZoomMeeting(meeting.externalId, latestUser.zoomAccessToken, latestUser.zoomRefreshToken);
-        if (result.success && result.newTokens) {
-          latestUser.zoomAccessToken = result.newTokens.access_token;
-          if (result.newTokens.refresh_token) latestUser.zoomRefreshToken = result.newTokens.refresh_token;
-          await latestUser.save();
-        }
-      }
-    }
-    if (result.success && result.newTokens) {
-      user.zoomAccessToken = result.newTokens.access_token;
-      if (result.newTokens.refresh_token) user.zoomRefreshToken = result.newTokens.refresh_token;
-      await user.save();
-    }
-    return result;
-  }
-
-  if (meeting.platform === "google" || meeting.platform === "meet") {
-    return deleteGoogleMeetEvent(meeting.externalId, {
-      refreshToken: user.googleRefreshToken,
-      accessToken: user.googleAccessToken,
-    });
-  }
-
-  return { success: true, skipped: true };
-}
+const meetingOperations = require("../services/meeting-operations");
 
 exports.createMeeting = async (req, res) => {
   try {
@@ -140,116 +20,29 @@ exports.createMeeting = async (req, res) => {
       ignoreBusy,
     } = req.body;
 
-    const user = await Employee.findById(req.user.id);
-    if (!user) return res.status(404).json({ message: "User not found" });
-    if (!title || !startTime || !organizerEmail) return res.status(400).json({ message: "Missing required fields" });
-    if (title.length > 200) return res.status(400).json({ error: "Title must be 200 characters or less" });
+    const parsedStart = new Date(startTime);
+    const parsedEnd = endTime ? new Date(endTime) : null;
+    const duration = parsedEnd ? Math.round((parsedEnd - parsedStart) / 60000) : (Number(req.user.settings?.defaultDurationMinutes) || 30);
 
-    const newStart = new Date(startTime);
-    const durationMinutes = Number(user.settings?.defaultDurationMinutes) || 30;
-    const effectiveEndTime = endTime || new Date(newStart.getTime() + (durationMinutes * 60 * 1000)).toISOString();
-    const newEnd = new Date(effectiveEndTime);
-    if (Number.isNaN(newStart.getTime())) return res.status(400).json({ error: "Invalid startTime" });
-    if (Number.isNaN(newEnd.getTime())) return res.status(400).json({ error: "Invalid endTime" });
-    if (newEnd <= newStart) return res.status(400).json({ error: "endTime must be after startTime" });
-    if (newStart <= new Date()) {
-      return res.status(400).json({ error: "Cannot schedule meeting for past date or time. Please select a future date and time." });
-    }
-    if ((newEnd - newStart) > 24 * 60 * 60 * 1000) return res.status(400).json({ error: "Meeting duration cannot exceed 24 hours" });
-
-    const tz = timezone || user.settings?.timezone || DEFAULT_TIMEZONE;
-    const desc = description || "";
-    const safeAttendees = normalizeAttendees(attendees);
-    const preferredPlatform = platform || user.settings?.defaultPlatform || "zoom";
-    const effectivePlatform = preferredPlatform === "teams" ? "zoom" : preferredPlatform;
-    const policy = readPolicy(user);
-    if (safeAttendees.length > 50) return res.status(400).json({ error: "Maximum 50 attendees allowed" });
-
-    const slots = generateSlots(newStart, newEnd, { isRecurring, pattern: recurrencePattern, endDate: recurrenceEndDate, count: recurrenceCount });
-
-
-    for (const slot of slots) {
-      try {
-        assertWithinWorkingPolicy({ startTime: slot.startTime, endTime: slot.endTime, user });
-      } catch (_) {
-        return res.status(400).json({ error: "Meeting is outside your configured working hours/days." });
-      }
-      if (policy.bufferMinutes > 0) {
-        const blocked = await hasBufferConflict({
-          email: organizerEmail,
-          startTime: slot.startTime,
-          endTime: slot.endTime,
-          bufferMinutes: policy.bufferMinutes,
-        });
-        if (blocked) return res.status(409).json({ error: "Meeting violates your configured buffer time." });
-      }
-      const conflict = await hasConflict(organizerEmail, slot.startTime, slot.endTime);
-      if (conflict) {
-        return res.status(409).json({ error: "Organizer has a meeting conflict", message: `Busy at ${slot.startTime.toISOString()}`, isBusy: true });
-      }
-    }
-
-    if (!ignoreBusy && safeAttendees.length > 0) {
-      const emails = safeAttendees.map((a) => a.email);
-      const busy = await checkAttendeesConflicts(emails, slots);
-
-      if (busy.length > 0) {
-        const busyList = busy.map((b) => ({
-          email: b.email,
-          name: (safeAttendees.find((a) => a.email === b.email) || {}).name || b.email,
-          isBusy: true,
-          conflictStartTime: new Date(b.conflictStart).toISOString(),
-          conflictEndTime: new Date(b.conflictEnd).toISOString(),
-        }));
-        return res.status(409).json({ error: "Some attendees are busy", busyAttendees: busyList, canProceed: true });
-      }
-    }
-
-    const seriesId = isRecurring ? `series-${Date.now()}` : null;
-    const meetingDocs = [];
-
-    for (const slot of slots) {
-      const slotData = { title, startTime: slot.startTime, endTime: slot.endTime, organizerEmail, attendees: safeAttendees, timezone: tz, description: desc };
-      const videoResult = await createMeetingLink(effectivePlatform, slotData, user);
-      if (!videoResult.success) return res.status(502).json({ error: videoResult.error });
-
-      meetingDocs.push({
-        title,
-        organizerEmail,
-        attendees: safeAttendees,
-        platform: effectivePlatform,
-        timezone: tz,
-        description: desc,
-        joinUrl: videoResult.meetingUrl,
-        externalId: videoResult.meetingId || videoResult.eventId || null,
-        startTime: slot.startTime,
-        endTime: slot.endTime,
-        isRecurring: isRecurring || false,
-        recurrencePattern: isRecurring ? recurrencePattern : null,
-        recurrenceEndDate: isRecurring && recurrenceEndDate ? new Date(recurrenceEndDate) : null,
-        recurrenceCount: isRecurring ? recurrenceCount : null,
-        seriesId,
-      });
-    }
-
-    const invitePayload = buildInvitePayload({
+    const meeting = await meetingOperations.createMeeting(req.user.id, organizerEmail, {
       title,
-      startTime: newStart,
-      endTime: newEnd,
-      organizerEmail,
-      attendees: safeAttendees,
-      description: desc,
-      joinUrl: meetingDocs[0].joinUrl,
-      platform: effectivePlatform,
+      attendees,
+      platform,
+      timezone,
+      description,
+      parsedTime: parsedStart,
+      duration,
+      isRecurring,
+      recurrencePattern,
+      recurrenceEndDate,
+      recurrenceCount,
+      ignoreBusy
     });
-    const created = await saveAndInvite(meetingDocs, invitePayload);
 
-    if (created.length === 1) {
-      return res.status(201).json(created[0]);
-    }
-    return res.status(201).json({ message: `Created ${created.length} recurring meetings`, meetings: created, seriesId });
+    return res.status(201).json(meeting);
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    console.error("Create meeting error:", err);
+    return res.status(err.message === "buffer_conflict" ? 409 : 500).json({ error: err.message });
   }
 };
 
@@ -267,216 +60,48 @@ exports.getMeetings = async (req, res) => {
 
 exports.checkAttendeeAvailability = async (req, res) => {
   try {
-    const { attendees, startTime, endTime, excludeMeetingId } = req.body;
+    const { attendees, startTime, endTime } = req.body;
+    if (!attendees || !Array.isArray(attendees)) return res.status(400).json({ message: "Attendees array is required" });
 
-    if (!attendees || !Array.isArray(attendees) || attendees.length === 0) return res.status(400).json({ message: "Attendees array is required" });
-    if (!startTime || !endTime) return res.status(400).json({ message: "Start and end time required" });
+    const start = new Date(startTime);
+    const end = new Date(endTime);
+    const duration = Math.round((end - start) / 60000);
 
-    const newStart = new Date(startTime);
-    const newEnd = new Date(endTime);
-    if (Number.isNaN(newStart.getTime()) || Number.isNaN(newEnd.getTime())) return res.status(400).json({ message: "Invalid date format" });
+    const resolvedEmails = await meetingOperations.resolveAttendees(attendees);
+    const available = await meetingOperations.isTimeAvailable(resolvedEmails, start, duration);
 
-    const busyAttendees = [];
-    for (const attendee of attendees) {
-      const email = attendee.email || attendee;
-      const conflict = await hasConflict(email, newStart, newEnd, excludeMeetingId);
-      if (conflict) {
-        busyAttendees.push({ email, name: attendee.name || email, conflict: { title: conflict.title, startTime: conflict.startTime, endTime: conflict.endTime, joinUrl: conflict.joinUrl } });
-      }
-    }
-
-    return res.json({ available: busyAttendees.length === 0, busyAttendees, checkedCount: attendees.length });
+    return res.json({ available });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
 };
+
 exports.cancelMeeting = async (req, res) => {
   try {
     const { meetingId } = req.params;
-
-    const user = await Employee.findById(req.user.id);
-    if (!user) return res.status(404).json({ message: "User not found" });
-    const policy = readPolicy(user);
-
-    const meeting = await Meeting.findById(meetingId);
-    if (!meeting) return res.status(404).json({ message: "Meeting not found" });
-    if (meeting.status === "cancelled") return res.status(400).json({ message: "Meeting already cancelled" });
-    if (meeting.organizerEmail !== user.email) return res.status(403).json({ message: "Only organizer can cancel" });
-
-    const cancelResult = await cancelExternalMeeting(meeting, user);
-    if (!cancelResult.success && !cancelResult.skipped) {
-      return res.status(502).json({ message: cancelResult.error || "Failed to cancel on platform" });
-    }
-
-    meeting.status = "cancelled";
-    meeting.cancelledAt = new Date();
-    meeting.cancelledBy = user.email;
-    await meeting.save();
-
-    if (Array.isArray(meeting.attendees) && meeting.attendees.length > 0) {
-      sendMeetingCancellations({
-        title: meeting.title,
-        startTime: meeting.startTime,
-        endTime: meeting.endTime,
-        organizerEmail: meeting.organizerEmail,
-        attendees: meeting.attendees,
-        description: meeting.description || "",
-        platform: meeting.platform,
-      })
-        .catch(() => null);
-    }
-
-    return res.json({ success: true, message: "Meeting cancelled", meeting });
+    const result = await meetingOperations.deleteMeeting(meetingId, req.user.id, req.user.email);
+    return res.json({ success: true, message: "Meeting cancelled", meeting: result });
   } catch (err) {
     return res.status(500).json({ error: err.message });
   }
 };
-
-async function updateExternalMeeting(meeting, updateData, user) {
-  if (!meeting.externalId) return { success: true, skipped: true };
-
-  if (meeting.platform === "zoom") {
-    let result = await updateZoomMeeting(meeting.externalId, updateData, user.zoomAccessToken, user.zoomRefreshToken);
-    if (!result.success && result.status === 400 && typeof result.error === "string" && result.error.toLowerCase().includes("refresh")) {
-      const latestUser = await Employee.findById(user._id);
-      if (latestUser?.zoomRefreshToken && latestUser.zoomRefreshToken !== user.zoomRefreshToken) {
-        result = await updateZoomMeeting(meeting.externalId, updateData, latestUser.zoomAccessToken, latestUser.zoomRefreshToken);
-        if (result.success && result.newTokens) {
-          latestUser.zoomAccessToken = result.newTokens.access_token;
-          if (result.newTokens.refresh_token) latestUser.zoomRefreshToken = result.newTokens.refresh_token;
-          await latestUser.save();
-        }
-      }
-    }
-    if (result.success && result.newTokens) {
-      user.zoomAccessToken = result.newTokens.access_token;
-      if (result.newTokens.refresh_token) user.zoomRefreshToken = result.newTokens.refresh_token;
-      await user.save();
-    }
-    return result;
-  }
-
-  if (meeting.platform === "google" || meeting.platform === "meet") {
-    return updateGoogleMeetEvent(meeting.externalId, updateData, {
-      refreshToken: user.googleRefreshToken,
-      accessToken: user.googleAccessToken,
-    });
-  }
-
-  return { success: true, skipped: true };
-}
 
 exports.updateMeeting = async (req, res) => {
   try {
     const { meetingId } = req.params;
-    const { title, startTime, endTime, description, attendees, timezone, ignoreBusy } = req.body;
+    const { title, startTime, endTime, description, attendees } = req.body;
 
-    const user = await Employee.findById(req.user.id);
-    if (!user) return res.status(404).json({ message: "User not found" });
+    const parsedStart = startTime ? new Date(startTime) : null;
+    const parsedEnd = endTime ? new Date(endTime) : null;
+    const duration = (parsedStart && parsedEnd) ? Math.round((parsedEnd - parsedStart) / 60000) : null;
 
-    const meeting = await Meeting.findById(meetingId);
-    if (!meeting) return res.status(404).json({ message: "Meeting not found" });
-    if (meeting.status === "cancelled") return res.status(400).json({ message: "Cannot edit a cancelled meeting" });
-    if (meeting.organizerEmail !== user.email) return res.status(403).json({ message: "Only organizer can edit" });
-    if (title && title.length > 200) return res.status(400).json({ error: "Title must be 200 characters or less" });
-
-    const isCompleted = new Date(meeting.endTime) < new Date();
-    if (isCompleted) return res.status(400).json({ message: "Cannot edit a completed meeting" });
-
-    const newStart = startTime ? new Date(startTime) : meeting.startTime;
-    const newEnd = endTime ? new Date(endTime) : meeting.endTime;
-    if (startTime && Number.isNaN(newStart.getTime())) return res.status(400).json({ error: "Invalid startTime" });
-    if (endTime && Number.isNaN(newEnd.getTime())) return res.status(400).json({ error: "Invalid endTime" });
-    if (newEnd <= newStart) return res.status(400).json({ error: "endTime must be after startTime" });
-    if (startTime && newStart <= new Date()) {
-      return res.status(400).json({ error: "Cannot schedule meeting for past date or time. Please select a future date and time." });
-    }
-    if ((newEnd - newStart) > 24 * 60 * 60 * 1000) return res.status(400).json({ error: "Meeting duration cannot exceed 24 hours" });
-    try {
-      assertWithinWorkingPolicy({ startTime: newStart, endTime: newEnd, user });
-    } catch (_) {
-      return res.status(400).json({ error: "Meeting is outside your configured working hours/days." });
-    }
-    if (policy.bufferMinutes > 0 && (startTime || endTime)) {
-      const blocked = await hasBufferConflict({
-        email: meeting.organizerEmail,
-        startTime: newStart,
-        endTime: newEnd,
-        bufferMinutes: policy.bufferMinutes,
-        excludeMeetingId: meetingId,
-      });
-      if (blocked) return res.status(409).json({ error: "Meeting violates your configured buffer time." });
-    }
-
-    if (startTime || endTime) {
-      const conflict = await hasConflict(meeting.organizerEmail, newStart, newEnd, meetingId);
-      if (conflict) {
-        return res.status(409).json({ error: "Organizer has a meeting conflict", message: `Busy at ${newStart.toISOString()}`, isBusy: true });
-      }
-    }
-
-    const safeAttendees = attendees ? normalizeAttendees(attendees) : undefined;
-    if (safeAttendees && safeAttendees.length > 50) return res.status(400).json({ error: "Maximum 50 attendees allowed" });
-
-    if (!ignoreBusy && safeAttendees && safeAttendees.length > 0 && (startTime || endTime)) {
-      const emails = safeAttendees.map((a) => a.email);
-      const slots = [{ startTime: newStart, endTime: newEnd }];
-      const busy = await checkAttendeesConflicts(emails, slots, meetingId);
-      if (busy.length > 0) {
-        const busyList = busy.map((b) => ({
-          email: b.email,
-          name: (safeAttendees.find((a) => a.email === b.email) || {}).name || b.email,
-          isBusy: true,
-          conflictStartTime: new Date(b.conflictStart).toISOString(),
-          conflictEndTime: new Date(b.conflictEnd).toISOString(),
-        }));
-        return res.status(409).json({ error: "Some attendees are busy", busyAttendees: busyList, canProceed: true });
-      }
-    }
-
-    const tz = timezone || meeting.timezone || DEFAULT_TIMEZONE;
-    const updateData = {
-      title: title || meeting.title,
-      startTime: newStart,
-      endTime: newEnd,
-      timezone: tz,
-      description: description !== undefined ? description : meeting.description,
-      attendees: safeAttendees || meeting.attendees,
-      organizerEmail: meeting.organizerEmail,
-    };
-
-    const externalResult = await updateExternalMeeting(meeting, updateData, user);
-    if (!externalResult.success && !externalResult.skipped) {
-      return res.status(502).json({ message: externalResult.error || "Failed to update on platform" });
-    }
-
-    if (title) meeting.title = title;
-    if (startTime || endTime) {
-      if (startTime) meeting.startTime = newStart;
-      if (endTime) meeting.endTime = newEnd;
-      meeting.reminderSentAt = null;
-    }
-    if (description !== undefined) meeting.description = description;
-    if (safeAttendees) meeting.attendees = safeAttendees;
-    if (timezone) meeting.timezone = tz;
-    meeting.updatedAt = new Date();
-
-    await meeting.save();
-
-    const allAttendees = meeting.attendees || [];
-    if (allAttendees.length > 0) {
-      sendMeetingUpdates({
-        title: meeting.title,
-        startTime: meeting.startTime,
-        endTime: meeting.endTime,
-        organizerEmail: meeting.organizerEmail,
-        attendees: allAttendees,
-        description: meeting.description || "",
-        joinUrl: meeting.joinUrl,
-        platform: meeting.platform,
-      })
-        .catch(() => null);
-    }
+    const meeting = await meetingOperations.updateMeeting(meetingId, req.user.id, req.user.email, {
+      title,
+      parsedTime: parsedStart,
+      duration,
+      description,
+      attendees
+    });
 
     return res.json({ success: true, message: "Meeting updated", meeting });
   } catch (err) {
