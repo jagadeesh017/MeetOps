@@ -1,5 +1,6 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useContext } from "react";
 import api from "../services/api";
+import { AuthContext } from "../context/Authcontext";
 
 const cleanContent = (text = "") =>
   text
@@ -184,6 +185,7 @@ const QUICK_PROMPTS = [
 ];
 
 export default function AIScheduler({ onClose, onMeetingCreated }) {
+  const { user } = useContext(AuthContext);
   const [messages, setMessages] = useState([
     {
       type: "bot",
@@ -224,7 +226,7 @@ export default function AIScheduler({ onClose, onMeetingCreated }) {
       const res = await api.post("/api/ai/chat", {
         prompt: messageText,
         conversationHistory: historySnapshot,
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        timezone: user?.settings?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
       });
 
       const data = res.data;

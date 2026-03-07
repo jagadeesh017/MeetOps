@@ -5,6 +5,8 @@ const meetingRoutes = require("./src/routes/meetingRoutes");
 const authRoutes = require("./src/routes/authRoutes");
 const integrationRoutes = require("./src/routes/integrationRoutes");
 const aiRoutes = require("./src/routes/aiRoutes");
+const settingsRoutes = require("./src/routes/settingsRoutes");
+const { startReminderScheduler } = require("./src/services/reminder-scheduler");
 const connectDB = require("./src/config/db");
 
 const startServer = async () => {
@@ -21,12 +23,14 @@ const startServer = async () => {
   app.use("/meetings", meetingRoutes);
   app.use("/api/integrations", integrationRoutes);
   app.use("/api/ai", aiRoutes);
+  app.use("/api/settings", settingsRoutes);
 
   const PORT = process.env.PORT || 5000;
 
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
   });
+  startReminderScheduler();
 };
 
 startServer().catch(err => {

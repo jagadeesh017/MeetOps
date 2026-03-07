@@ -1,4 +1,15 @@
 const mongoose = require('mongoose');
+
+const DEFAULT_SETTINGS = {
+  timezone: 'Asia/Kolkata',
+  defaultPlatform: 'zoom',
+  defaultDurationMinutes: 30,
+  bufferMinutes: 10,
+  workHours: { start: '09:00', end: '18:00', days: [1, 2, 3, 4, 5] },
+  ai: { autoConfirmBeforeCreate: false, includeConflictDetails: true },
+  notifications: { emailRemindersEnabled: true, reminderMinutesBefore: 15 },
+};
+
 const EmployeeSchema = new mongoose.Schema({
   name: {
     type: String,
@@ -30,6 +41,26 @@ const EmployeeSchema = new mongoose.Schema({
 
   // Auth refresh token (hashed)
   refreshToken: { type: String, default: null },
+
+  settings: {
+    timezone: { type: String, default: DEFAULT_SETTINGS.timezone },
+    defaultPlatform: { type: String, enum: ['zoom', 'google', 'meet', 'teams'], default: DEFAULT_SETTINGS.defaultPlatform },
+    defaultDurationMinutes: { type: Number, default: DEFAULT_SETTINGS.defaultDurationMinutes },
+    bufferMinutes: { type: Number, default: DEFAULT_SETTINGS.bufferMinutes },
+    workHours: {
+      start: { type: String, default: DEFAULT_SETTINGS.workHours.start },
+      end: { type: String, default: DEFAULT_SETTINGS.workHours.end },
+      days: { type: [Number], default: DEFAULT_SETTINGS.workHours.days },
+    },
+    ai: {
+      autoConfirmBeforeCreate: { type: Boolean, default: DEFAULT_SETTINGS.ai.autoConfirmBeforeCreate },
+      includeConflictDetails: { type: Boolean, default: DEFAULT_SETTINGS.ai.includeConflictDetails },
+    },
+    notifications: {
+      emailRemindersEnabled: { type: Boolean, default: DEFAULT_SETTINGS.notifications.emailRemindersEnabled },
+      reminderMinutesBefore: { type: Number, default: DEFAULT_SETTINGS.notifications.reminderMinutesBefore },
+    },
+  },
 });
 
 module.exports = mongoose.model('Employee', EmployeeSchema);

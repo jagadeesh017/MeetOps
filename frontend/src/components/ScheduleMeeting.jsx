@@ -151,8 +151,17 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
     const [showSuggestions, setShowSuggestions] = useState(false);
 
     const timezones = getTimezoneList();
+    const userTimezone = user?.settings?.timezone;
+    const userDefaultDuration = Number(user?.settings?.defaultDurationMinutes) || 30;
+    const userDefaultPlatform = (() => {
+        const raw = String(user?.settings?.defaultPlatform || "zoom").toLowerCase();
+        if (raw === "google") return "meet";
+        if (raw === "teams") return "zoom";
+        return raw;
+    })();
+
     const tzFromInit = (initialDate && typeof initialDate === 'object' && initialDate.timezone)
-        || getLocalTimezone() || 'Asia/Kolkata';
+        || userTimezone || getLocalTimezone() || 'Asia/Kolkata';
     const initDateVal = (initialDate && typeof initialDate === 'object' && initialDate.date)
         || initialDate;
 
@@ -177,8 +186,8 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
         const sDateStr = toLocalDate(initDateVal, tzFromInit);
         return {
             title: '', startDate: sDateStr, startTime: defaultStart,
-            endDate: sDateStr, endTime: addMinutes(defaultStart, 30),
-            timezone: tzFromInit, platform: 'zoom', description: '',
+            endDate: sDateStr, endTime: addMinutes(defaultStart, userDefaultDuration),
+            timezone: tzFromInit, platform: userDefaultPlatform || 'zoom', description: '',
             isRecurring: false, recurrencePattern: 'daily', recurrenceMode: 'count',
             recurrenceEndDate: '', recurrenceCount: 1,
         };
@@ -235,7 +244,7 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
         const { name, value, type, checked } = e.target;
         setFormData(prev => {
             const next = { ...prev, [name]: type === 'checkbox' ? checked : value };
-            if (name === 'startTime') next.endTime = addMinutes(value, 30);
+            if (name === 'startTime') next.endTime = addMinutes(value, userDefaultDuration);
             if (name === 'startDate') next.endDate = value;
             return next;
         });

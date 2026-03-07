@@ -1,184 +1,228 @@
 const Employee = require("../models/employee");
-const { runAction } = require("../services/ai-action-executor");
-const {
-  emptyState,
-  normalizeUserText,
-  extractMeetingEntities,
-  resetForIntent,
-  mergeState,
-  getMissingField,
-  questionForMissing,
-  reminderForMissing,
-  hasMeaningfulNewData,
-  evaluateSlotsFlow,
-  buildAction,
-  buildClarificationReply,
-  confirmationMessage,
-  friendlyActionError,
-} = require("../services/ai-agent-core");
-
-const sessionState = {};
-
-const clearSession = (sessionKey, keepLastMeetingRef = null) => {
-  const next = emptyState();
-  if (keepLastMeetingRef) next.lastMeetingRef = keepLastMeetingRef;
-  sessionState[sessionKey] = next;
-};
-
-const resetSessions = () => {
-  for (const key of Object.keys(sessionState)) delete sessionState[key];
-};
+const { parsePrompt } = require("../ai/promptParser");
+const { executeIntent } = require("../ai/actionRouter");
+const { parseTime } = require("../services/meeting-operations");
 
 const respondOk = (res, reply, extra = {}) => res.status(200).json({ success: true, message: reply, reply, ...extra });
+const sessionState = {};
+const getSessionKey = (userId, sessionId) => (sessionId ? `${userId}:${sessionId}` : String(userId));
+const getSession = (key) => {
+  if (!sessionState[key]) sessionState[key] = { pendingSelection: null, pendingConfirmation: null };
+  return sessionState[key];
+};
+const MUTATING_ACTIONS = new Set(["schedule_meeting", "update_meeting", "cancel_meeting"]);
+const CONFIRM_YES = /^(yes|y|ok|okay|confirm|proceed|do it|go ahead|sure)$/i;
+const CONFIRM_NO = /^(no|n|cancel|stop|don't|do not)$/i;
 
-const hydrateSelectionRef = (state, entities, userPrompt) => {
-  if (state.pendingMeetings?.length && entities.selectionIndex) {
-    const selected = state.pendingMeetings[entities.selectionIndex - 1];
-    if (selected?._id) entities.meetingRef = String(selected._id);
-    entities.time = null;
-    entities.title = null;
-    entities.titleProvided = false;
-    entities.attendees = [];
-    entities.duration = null;
-    entities.platform = null;
-    entities.type = state.intent || entities.type;
-  }
+const shouldAskConfirmation = (intent, settings = {}) =>
+  Boolean(settings?.ai?.autoConfirmBeforeCreate) && MUTATING_ACTIONS.has(intent?.action);
 
-  const isPronoun = entities.meetingRef === "it" || /\b(it|this|that)\b/i.test(userPrompt);
-  if (isPronoun && ["update", "delete"].includes(entities.type || state.intent)) {
-    entities.meetingRef = state.meetingRef || state.lastMeetingRef || entities.meetingRef;
-  }
+const RELATIVE_TIME_HINT = /\b(today|tomorrow|tonight|this\s+(morning|afternoon|evening)|next\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday|week|month)|this\s+week)\b/i;
 
-  if (!entities.type && state.intent) entities.type = state.intent;
-  return entities;
+const formatUserTime = (timeValue, timezone) => {
+  const d = parseTime(String(timeValue || ""), timezone || "UTC");
+  if (!d || Number.isNaN(new Date(d).getTime())) return String(timeValue || "");
+  return new Date(d).toLocaleString("en-US", {
+    timeZone: timezone || "UTC",
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 };
 
-const askForMissing = (state, entities, prevIntent) => {
-  const missingField = getMissingField(state);
-  if (!state.intent || !missingField) return null;
+const normalizeIntentTime = (intent = {}, userPrompt = "", timezone = "UTC") => {
+  if (!intent?.data?.time) return intent;
+  if (!RELATIVE_TIME_HINT.test(String(userPrompt || ""))) return intent;
 
-  const repeated =
-    state.lastAskedField === missingField &&
-    state.lastAskedIntent === state.intent &&
-    !hasMeaningfulNewData(entities, prevIntent);
+  const parsedFromIntent = parseTime(String(intent.data.time), timezone);
+  if (!parsedFromIntent) return intent;
+  const now = new Date();
+  if (new Date(parsedFromIntent).getTime() > now.getTime()) return intent;
 
-  state.lastAskedField = missingField;
-  state.lastAskedIntent = state.intent;
-  return repeated ? reminderForMissing(missingField) : questionForMissing(missingField);
+  const reparsed = parseTime(String(userPrompt || ""), timezone);
+  if (!reparsed || new Date(reparsed).getTime() <= now.getTime()) return intent;
+
+  return {
+    ...intent,
+    data: {
+      ...(intent.data || {}),
+      // Keep relative phrase context (e.g., "today 9am") so downstream parser uses current date semantics.
+      time: String(userPrompt || ""),
+    },
+  };
 };
 
-const handleSelectionResponse = (result, state) => {
-  if (result?.type !== "select_update" && result?.type !== "select_delete") return null;
+const summarizeIntent = (intent = {}, timezone = "UTC") => {
+  const data = intent.data || {};
+  if (intent.action === "schedule_meeting") {
+    return `Please confirm: schedule "${data.title || "meeting"}"${data.time ? ` at ${formatUserTime(data.time, timezone)}` : ""}${data.platform ? ` on ${data.platform}` : ""}?`;
+  }
+  if (intent.action === "update_meeting") {
+    return `Please confirm: update meeting${data.meetingRef ? ` (${data.meetingRef})` : ""}${data.time ? ` to ${formatUserTime(data.time, timezone)}` : ""}?`;
+  }
+  if (intent.action === "cancel_meeting") {
+    return `Please confirm: cancel meeting${data.meetingRef ? ` (${data.meetingRef})` : ""}?`;
+  }
+  return "Please confirm this action.";
+};
 
-  state.pendingMeetings = result.meetings;
-  state.intent = result.type === "select_update" ? "update" : "delete";
-  state.lastAskedField = "meetingRef";
-  state.lastAskedIntent = state.intent;
-  return "Which meeting did you mean? Reply with a number.";
+const friendlyError = (err, settings = {}) => {
+  const msg = String(err?.message || "");
+  const includeConflictDetails = settings?.ai?.includeConflictDetails !== false;
+  if (msg.includes("Cannot schedule meeting for past date or time")) return "That time is in the past. Please share a future date and time.";
+  if (msg.includes("outside_working_hours")) return "That time is outside your configured working days/hours.";
+  if (msg.includes("Meeting is outside your configured working hours/days")) return "That time is outside your configured working days/hours.";
+  if (msg.includes("buffer_conflict")) return "That time violates your configured buffer time between meetings.";
+  if (msg.includes("Meeting violates your configured buffer time")) return "That time violates your configured buffer time between meetings.";
+  if (msg.includes("invalid_time") || msg.includes("Please provide a valid date and time")) return "I couldn't parse the meeting time. Please share date and time clearly.";
+  if (msg.includes("Missing required fields")) return "I still need required details (title, attendees, and time) before scheduling.";
+  if (msg.includes("Please specify at least one attendee") || msg.includes("No attendees specified")) return "Who should attend the meeting?";
+  if (/meeting reference/i.test(msg) || /meeting ref/i.test(msg)) return "Please tell me which meeting to use. You can share meeting number, title, attendee, or time.";
+  if (msg.includes("Zoom account is not connected")) return "Your Zoom account is not connected. Please connect it in Integrations or ask for Google Meet.";
+  if (msg.includes("Google account is not connected")) return "Your Google account is not connected. Please connect it in Integrations or ask for Zoom.";
+  if (msg.includes("Failed to create Google Meet")) return "I couldn't create the Google Meet right now. Please reconnect Google Calendar and try again.";
+  if (msg.includes("Failed to create Zoom meeting")) return "I couldn't create the Zoom meeting right now. Please reconnect Zoom and try again.";
+  if (msg.includes("meeting_not_found") || msg.includes("Meeting not found")) return "I couldn't find that meeting. Please share meeting title, attendee, or time.";
+  if (msg.includes("not found. Use a person name, email, or group name")) return msg;
+  if (msg.includes("missing_change")) return "What should I change for that meeting?";
+  if (msg.includes("conflicting meeting")) return includeConflictDetails ? msg : "That time conflicts with another meeting. Please choose another time.";
+  if (includeConflictDetails && msg && msg.length <= 220) return msg;
+  return "I couldn't complete that meeting request yet. Please try again.";
+};
+
+const runIntent = async ({ userId, userEmail, intent, timezone, settings, state }) => {
+  let result;
+  try {
+    result = await executeIntent({
+      userId,
+      userEmail,
+      intent,
+      timezone,
+    });
+  } catch (err) {
+    throw new Error(friendlyError(err, settings));
+  }
+
+  if (Array.isArray(result.meetings) && /Which meeting did you mean/i.test(String(result.reply || ""))) {
+    state.pendingSelection = {
+      action: intent.action,
+      data: intent.data || {},
+      meetings: result.meetings,
+    };
+  } else {
+    state.pendingSelection = null;
+  }
+
+  return result;
 };
 
 const chatHandler = async (req, res) => {
   try {
-    const { prompt, conversationHistory, timezone = "UTC", sessionId } = req.body;
-    const userPrompt = normalizeUserText(String(prompt || "").trim());
-
+    const { prompt, conversationHistory = [], timezone } = req.body;
+    const userPrompt = String(prompt || "").trim();
     if (!userPrompt) return respondOk(res, "How can I help with your meetings?");
 
-    const user = await Employee.findById(req.user.id);
+    const user = await Employee.findById(req.user.id).select("email settings");
     if (!user) return res.status(404).json({ success: false, message: "User not found." });
+    const effectiveTimezone = timezone || user.settings?.timezone || "UTC";
 
-    const employees = await Employee.find().select("name email").lean();
-    const sessionKey = sessionId ? `${user.id}:${sessionId}` : String(user.id);
-    if (!sessionState[sessionKey]) sessionState[sessionKey] = emptyState();
+    const sessionKey = getSessionKey(req.user.id, req.body?.sessionId);
+    const state = getSession(sessionKey);
 
-    let state = sessionState[sessionKey];
-    const prevIntent = state.intent;
+    if (state.pendingConfirmation) {
+      if (CONFIRM_NO.test(userPrompt)) {
+        state.pendingConfirmation = null;
+        return respondOk(res, "Okay, cancelled. Tell me what you want to do next.");
+      }
+      if (!CONFIRM_YES.test(userPrompt)) {
+        return respondOk(res, 'Please reply with "yes" to confirm or "no" to cancel.');
+      }
 
-    const entities = hydrateSelectionRef(
-      state,
-      extractMeetingEntities({ message: userPrompt, timezone, employees, currentIntent: state.intent }),
-      userPrompt
-    );
-
-    state = mergeState(resetForIntent(state, entities.type), entities);
-
-    if (state.intent === "schedule") {
-      state.title = state.title || "meeting";
-      state.platform = state.platform || "zoom";
-      state.duration = state.duration || 60;
-    }
-
-    if (prevIntent && entities.type && prevIntent !== entities.type) {
-      state.lastAskedField = null;
-      state.lastAskedIntent = null;
-      state.slotsAskedAttendees = false;
-    }
-
-    const slotsFlow = evaluateSlotsFlow({ state, entities, userPrompt, prevIntent });
-    state = slotsFlow.state;
-    sessionState[sessionKey] = state;
-    if (slotsFlow.reply) return respondOk(res, slotsFlow.reply);
-
-    const missingReply = askForMissing(state, entities, prevIntent);
-    if (missingReply) {
-      sessionState[sessionKey] = state;
-      return respondOk(res, missingReply);
-    }
-
-    if (state.intent && state.intent !== "query") {
-      state.lastAskedField = null;
-      state.lastAskedIntent = null;
-
+      const pending = state.pendingConfirmation;
+      state.pendingConfirmation = null;
       try {
-        const action = buildAction(state, timezone);
-        const result = await runAction(req.user.id, user.email, action);
-
-        const selectionReply = handleSelectionResponse(result, state);
-        sessionState[sessionKey] = state;
-        if (selectionReply) return respondOk(res, selectionReply, { meetings: result.meetings });
-
-        const confirmation = confirmationMessage(result?.type, action, result?.meeting, timezone);
-        const lastMeetingRef = result?.meeting?._id ? String(result.meeting._id) : state.meetingRef || state.lastMeetingRef;
-        clearSession(sessionKey, lastMeetingRef || null);
-
-        const { type: _ignoredType, ...payload } = result || {};
-        return respondOk(res, confirmation, payload);
-      } catch (actionErr) {
-        return respondOk(res, friendlyActionError(actionErr, state.intent));
+        const result = await runIntent({
+          userId: req.user.id,
+          userEmail: user.email,
+          intent: pending.intent,
+          timezone: pending.timezone || effectiveTimezone,
+          settings: user.settings,
+          state,
+        });
+        return respondOk(res, result.reply, result);
+      } catch (execErr) {
+        return respondOk(res, execErr.message || "I couldn't complete that meeting request yet. Please try again.");
       }
     }
 
-    const aiChatService = require("../services/ai-chat-service");
-    const ai = await aiChatService.chatWithAI({
-      userId: req.user.id,
-      userEmail: user.email,
-      userMessage: userPrompt,
-      conversationHistory: conversationHistory || [],
-      timezone,
-    });
-
-    let reply = ai.message || "I only help with meetings.";
-    if (/not sure how to help|rephrase your meeting request/i.test(reply)) {
-      reply = buildClarificationReply(state);
+    let intent;
+    const selectedIdx = Number(userPrompt);
+    if (
+      Number.isInteger(selectedIdx) &&
+      selectedIdx > 0 &&
+      state.pendingSelection?.meetings?.length
+    ) {
+      const selected = state.pendingSelection.meetings[selectedIdx - 1];
+      if (!selected?._id) {
+        return respondOk(res, "Please reply with a valid meeting number from the list.");
+      }
+      intent = {
+        action: state.pendingSelection.action,
+        message: "",
+        data: {
+          ...(state.pendingSelection.data || {}),
+          meetingRef: String(selected._id),
+        },
+      };
+      console.log("[AI] prompt:", userPrompt);
+      console.log("[AI] intent-from-selection:", JSON.stringify(intent));
+    } else {
+      if (Number.isInteger(selectedIdx) && selectedIdx > 0 && !state.pendingSelection?.meetings?.length) {
+        return respondOk(res, "I don't have an active meeting list to select from. Ask me to list or find meetings first.");
+      }
+      console.log("[AI] prompt:", userPrompt);
+      intent = await parsePrompt({ prompt: userPrompt, history: conversationHistory, timezone: effectiveTimezone });
     }
 
-    return respondOk(res, reply);
+    intent = normalizeIntentTime(intent, userPrompt, effectiveTimezone);
+    console.log("[AI] intent:", JSON.stringify(intent));
+
+    if (intent.action === "ask_clarification" || intent.action === "no_op") {
+      return respondOk(res, intent.message || "Could you share one more detail?");
+    }
+
+    if (shouldAskConfirmation(intent, user.settings)) {
+      state.pendingConfirmation = { intent, timezone: effectiveTimezone };
+      return respondOk(res, summarizeIntent(intent, effectiveTimezone));
+    }
+
+    let result;
+    try {
+      result = await runIntent({
+        userId: req.user.id,
+        userEmail: user.email,
+        intent,
+        timezone: effectiveTimezone,
+        settings: user.settings,
+        state,
+      });
+    } catch (err) {
+      console.error("[AI] execute error:", err?.message || err);
+      return respondOk(res, err?.message || "I couldn't complete that meeting request yet. Please try again.");
+    }
+    console.log("[AI] executed:", intent.action);
+    return respondOk(res, result.reply, result);
   } catch (err) {
     const isRateLimit =
-      err.status === 429 ||
+      err?.status === 429 ||
       err?.error?.code === "rate_limit_exceeded" ||
-      (typeof err.message === "string" && err.message.includes("rate_limit_exceeded"));
-
+      (typeof err?.message === "string" && err.message.includes("rate_limit_exceeded"));
     if (isRateLimit) return res.status(429).json({ success: false, code: "rate_limit" });
-
-    return respondOk(res, "I couldn't process that meeting request yet. Please try again.");
+    console.error("[AI] controller error:", err?.message || err);
+    return respondOk(res, friendlyError(err, {}));
   }
 };
 
-module.exports = {
-  chatHandler,
-  extractMeetingEntities,
-  mergeState,
-  getMissingField,
-  resetSessions,
-};
+module.exports = { chatHandler };

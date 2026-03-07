@@ -31,7 +31,7 @@ exports.login = async (req, res) => {
     res.json({
       accessToken,
       refreshToken,
-      user: { id: user._id, name: user.name, email: user.email, department: user.department },
+      user: { id: user._id, name: user.name, email: user.email, department: user.department, settings: user.settings || {} },
     });
   } catch (err) {
     console.error('[Auth] Login error:', err.message);

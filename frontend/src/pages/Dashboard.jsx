@@ -6,33 +6,65 @@ import AIScheduler from "../components/AIScheduler";
 import { getIntegrationStatus, connectGoogle, connectZoom, disconnectIntegration } from "../services/integrations";
 import { useToast } from "../context/ToastContext";
 
+function StatusMark({ connected }) {
+  return connected ? (
+    <span
+      className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400"
+      aria-label="Connected"
+      title="Connected"
+    >
+      <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+        <path d="M5 12l5 5L19 8" />
+      </svg>
+    </span>
+  ) : (
+    <span
+      className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-rose-500/20 text-rose-400"
+      aria-label="Not connected"
+      title="Not connected"
+    >
+      <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+        <path d="M6 6l12 12M18 6l-12 12" />
+      </svg>
+    </span>
+  );
+}
+
+function IntegrationChip({ title, connected, email, onClick, tone }) {
+  return (
+    <button
+      onClick={onClick}
+      className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+      title={connected && email ? `${title} connected as ${email}` : `${title} ${connected ? "connected" : "not connected"}`}
+    >
+      <span className={`h-2 w-2 rounded-full ${connected ? tone : "bg-slate-300"}`} />
+      <span>{title}</span>
+      <StatusMark connected={connected} />
+    </button>
+  );
+}
+
 export default function Dashboard() {
-  const { user, setUser } = useContext(AuthContext);
+  const { user } = useContext(AuthContext);
   const [showScheduleForm, setShowScheduleForm] = useState(false);
   const [showAIScheduler, setShowAIScheduler] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [pendingDisconnect, setPendingDisconnect] = useState(null);
-  const [integrations, setIntegrations] = useState({
-    google: { connected: false, email: null },
-    zoom: { connected: false, email: null }
-  });
+  const [integrations, setIntegrations] = useState({ google: { connected: false, email: null }, zoom: { connected: false, email: null } });
   const { showToast } = useToast();
 
   const fetchStatus = useCallback(async () => {
     try {
       const status = await getIntegrationStatus();
       setIntegrations(status);
-    } catch (err) {
-      console.error("Failed to fetch integration status", err);
+    } catch {
+      showToast("Failed to load integration status", "error");
     }
-  }, []);
+  }, [showToast]);
 
   useEffect(() => {
-    if (user) {
-    
-      fetchStatus();
-    }
-  }, [user]);
+    if (user) fetchStatus();
+  }, [user, fetchStatus]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -55,9 +87,8 @@ export default function Dashboard() {
     if (!pendingDisconnect) return;
     try {
       await disconnectIntegration(pendingDisconnect);
-      fetchStatus();
-      const label = pendingDisconnect === "google" ? "Google" : "Zoom";
-      showToast(`${label} disconnected successfully`, "success");
+      await fetchStatus();
+      showToast(`${pendingDisconnect === "google" ? "Google" : "Zoom"} disconnected`, "success");
     } catch {
       showToast(`Failed to disconnect ${pendingDisconnect}`, "error");
     } finally {
@@ -65,137 +96,63 @@ export default function Dashboard() {
     }
   };
 
-  const logout = () => {
-    localStorage.removeItem("token");
-    sessionStorage.removeItem("token");
-    setUser(null);
-  };
-
-  const handleMeetingCreated = () => {
-    setRefreshKey(prev => prev + 1);
-  };
+  const handleMeetingCreated = () => setRefreshKey((prev) => prev + 1);
 
   return (
-    <div className="h-screen overflow-hidden flex flex-col bg-gray-50 dark:bg-[#1f1f1f] text-gray-800 dark:text-gray-100">
-      <header className="bg-white dark:bg-[#292929] shadow-sm px-4 py-2 flex justify-between items-center border-b border-gray-200 dark:border-[#3d3d3d]">
-        <h1 className="text-xl font-semibold text-blue-600 dark:text-[#6264a7]">MeetOps</h1>
+    <div className="flex h-[calc(100vh-94px)] min-h-[620px] flex-col gap-2">
+      <section className="shrink-0 rounded-xl border border-slate-200 bg-white/95 p-3 shadow-sm dark:border-slate-700/60 dark:bg-slate-900/88 dark:shadow-none">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{user?.name || "User"}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">Calendar workspace</p>
+          </div>
 
-        <div className="flex items-center gap-4">
-          <span className="text-sm text-gray-600 dark:text-gray-300">
-            {user?.email || "User"}
-          </span>
-
-          <button
-            onClick={logout}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 transition font-medium text-sm border border-red-200 dark:border-red-800/40"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-            </svg>
-            Logout
-          </button>
-        </div>
-      </header>
-
-      <main className="flex-1 min-h-0 flex flex-col">
-        <div className="flex items-center gap-3 px-4 py-2.5 bg-white dark:bg-[#292929] border-b border-gray-200 dark:border-[#3d3d3d] shrink-0 flex-wrap">
-          <span className="text-base font-bold text-gray-900 dark:text-white mr-2">Schedule</span>
-
-          <button
-              onClick={() => setShowScheduleForm(true)}
-              className="inline-flex items-center gap-2 bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg transition hover:bg-blue-700 shadow-sm text-sm"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v14m7-7H5" />
-              </svg>
-              New Meeting
-            </button>
-
+          <div className="flex flex-wrap items-center gap-2">
+            <IntegrationChip
+              title="Google"
+              connected={integrations.google.connected}
+              email={integrations.google.email}
+              tone="bg-emerald-500"
+              onClick={integrations.google.connected ? () => setPendingDisconnect("google") : () => handleConnect(connectGoogle, "Google")}
+            />
+            <IntegrationChip
+              title="Zoom"
+              connected={integrations.zoom.connected}
+              email={integrations.zoom.email}
+              tone="bg-blue-500"
+              onClick={integrations.zoom.connected ? () => setPendingDisconnect("zoom") : () => handleConnect(connectZoom, "Zoom")}
+            />
             <button
               onClick={() => setShowAIScheduler(true)}
-              className="inline-flex items-center gap-2 bg-white dark:bg-[#2b2b2b] text-gray-800 dark:text-gray-100 font-semibold py-2 px-4 rounded-lg border border-gray-200 dark:border-[#3a3a3a] transition hover:bg-gray-50 dark:hover:bg-[#333] shadow-sm text-sm"
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-              </svg>
               AI Scheduler
             </button>
-
-          <div className="ml-auto flex gap-2.5">
             <button
-              onClick={integrations.google.connected ? () => setPendingDisconnect('google') : () => handleConnect(connectGoogle, 'Google')}
-              className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${
-                integrations.google.connected
-                  ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/50'
-                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-              }`}
-              title={integrations.google.connected ? `Connected: ${integrations.google.email}` : 'Connect Google Calendar'}
+              onClick={() => setShowScheduleForm(true)}
+              className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-800 dark:bg-indigo-500 dark:hover:bg-indigo-400"
             >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
-                <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
-              </svg>
-              {integrations.google.connected ? 'Google ✓' : 'Google'}
-            </button>
-
-            <button
-              onClick={integrations.zoom.connected ? () => setPendingDisconnect('zoom') : () => handleConnect(connectZoom, 'Zoom')}
-              className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg font-medium text-sm transition-all duration-200 ${
-                integrations.zoom.connected
-                  ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/50'
-                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-              }`}
-              title={integrations.zoom.connected ? `Connected: ${integrations.zoom.email}` : 'Connect Zoom'}
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M17 9.875L21.375 7V17L17 14.125V17C17 17.65 16.45 18.2 15.8 18.2H3.2C2.55 18.2 2 17.65 2 17V7C2 6.35 2.55 5.8 3.2 5.8H15.8C16.45 5.8 17 6.35 17 7V9.875Z" />
-              </svg>
-              {integrations.zoom.connected ? 'Zoom ✓' : 'Zoom'}
+              New Meeting
             </button>
           </div>
         </div>
+      </section>
 
-        <div className="flex-1 min-h-0 overflow-hidden">
-          <CustomCalendar key={refreshKey} />
-        </div>
-      </main>
+      <section className="min-h-0 flex-1 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700/60 dark:bg-slate-900 dark:shadow-none">
+        <CustomCalendar key={refreshKey} />
+      </section>
 
-      {showScheduleForm && (
-        <ScheduleMeeting
-          onClose={() => setShowScheduleForm(false)}
-          onMeetingCreated={handleMeetingCreated}
-        />
-      )}
-
-      {showAIScheduler && (
-        <AIScheduler 
-          onClose={() => setShowAIScheduler(false)}
-          onMeetingCreated={handleMeetingCreated}
-        />
-      )}
+      {showScheduleForm && <ScheduleMeeting onClose={() => setShowScheduleForm(false)} onMeetingCreated={handleMeetingCreated} />}
+      {showAIScheduler && <AIScheduler onClose={() => setShowAIScheduler(false)} onMeetingCreated={handleMeetingCreated} />}
 
       {pendingDisconnect && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-40">
-          <div className="bg-white dark:bg-[#2b2b2b] rounded-lg shadow-xl p-6 w-full max-w-sm border border-gray-200 dark:border-[#3a3a3a]">
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-2">Disconnect integration</h3>
-            <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
-              Are you sure you want to disconnect {pendingDisconnect === "google" ? "Google Calendar" : "Zoom"}?
-            </p>
-            <div className="flex justify-end gap-3">
-              <button
-                onClick={() => setPendingDisconnect(null)}
-                className="px-3 py-1.5 rounded-lg text-sm border border-gray-200 dark:border-[#4a4a4a] text-gray-700 dark:text-gray-200 bg-white dark:bg-[#333] hover:bg-gray-50 dark:hover:bg-[#444]"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleDisconnect}
-                className="px-3 py-1.5 rounded-lg text-sm bg-red-600 text-white hover:bg-red-700"
-              >
-                Disconnect
-              </button>
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 p-4">
+          <div className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Disconnect integration</h3>
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Are you sure you want to disconnect {pendingDisconnect === "google" ? "Google Calendar" : "Zoom"}?</p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button onClick={() => setPendingDisconnect(null)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">Cancel</button>
+              <button onClick={handleDisconnect} className="rounded-lg bg-rose-600 px-3 py-2 text-sm font-semibold text-white hover:bg-rose-700 dark:bg-rose-500 dark:hover:bg-rose-400">Disconnect</button>
             </div>
           </div>
         </div>

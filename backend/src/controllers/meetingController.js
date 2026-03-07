@@ -6,6 +6,7 @@ const { createGoogleMeetMeeting, deleteGoogleMeetEvent, updateGoogleMeetEvent } 
 const { saveAndInvite } = require("../services/meetingService");
 const { sendMeetingCancellations, sendMeetingUpdates } = require("../services/email-invite-service");
 const { hasConflict, checkAttendeesConflicts } = require("../services/conflictService");
+const { readPolicy, assertWithinWorkingPolicy, hasBufferConflict } = require("../services/user-settings-policy");
 const { generateSlots } = require("../utilities/recurrence");
 
 const DEFAULT_TIMEZONE = "IST";
@@ -123,15 +124,31 @@ async function cancelExternalMeeting(meeting, user) {
 
 exports.createMeeting = async (req, res) => {
   try {
-    const { title, startTime, endTime, organizerEmail, attendees, platform, timezone, description, isRecurring, recurrencePattern, recurrenceEndDate, recurrenceCount, ignoreBusy } = req.body;
+    const {
+      title,
+      startTime,
+      endTime,
+      organizerEmail,
+      attendees,
+      platform,
+      timezone,
+      description,
+      isRecurring,
+      recurrencePattern,
+      recurrenceEndDate,
+      recurrenceCount,
+      ignoreBusy,
+    } = req.body;
 
     const user = await Employee.findById(req.user.id);
     if (!user) return res.status(404).json({ message: "User not found" });
-    if (!title || !startTime || !endTime || !organizerEmail) return res.status(400).json({ message: "Missing required fields" });
+    if (!title || !startTime || !organizerEmail) return res.status(400).json({ message: "Missing required fields" });
     if (title.length > 200) return res.status(400).json({ error: "Title must be 200 characters or less" });
 
     const newStart = new Date(startTime);
-    const newEnd = new Date(endTime);
+    const durationMinutes = Number(user.settings?.defaultDurationMinutes) || 30;
+    const effectiveEndTime = endTime || new Date(newStart.getTime() + (durationMinutes * 60 * 1000)).toISOString();
+    const newEnd = new Date(effectiveEndTime);
     if (Number.isNaN(newStart.getTime())) return res.status(400).json({ error: "Invalid startTime" });
     if (Number.isNaN(newEnd.getTime())) return res.status(400).json({ error: "Invalid endTime" });
     if (newEnd <= newStart) return res.status(400).json({ error: "endTime must be after startTime" });
@@ -140,15 +157,32 @@ exports.createMeeting = async (req, res) => {
     }
     if ((newEnd - newStart) > 24 * 60 * 60 * 1000) return res.status(400).json({ error: "Meeting duration cannot exceed 24 hours" });
 
-    const tz = timezone || DEFAULT_TIMEZONE;
+    const tz = timezone || user.settings?.timezone || DEFAULT_TIMEZONE;
     const desc = description || "";
     const safeAttendees = normalizeAttendees(attendees);
+    const preferredPlatform = platform || user.settings?.defaultPlatform || "zoom";
+    const effectivePlatform = preferredPlatform === "teams" ? "zoom" : preferredPlatform;
+    const policy = readPolicy(user);
     if (safeAttendees.length > 50) return res.status(400).json({ error: "Maximum 50 attendees allowed" });
 
     const slots = generateSlots(newStart, newEnd, { isRecurring, pattern: recurrencePattern, endDate: recurrenceEndDate, count: recurrenceCount });
 
 
     for (const slot of slots) {
+      try {
+        assertWithinWorkingPolicy({ startTime: slot.startTime, endTime: slot.endTime, user });
+      } catch (_) {
+        return res.status(400).json({ error: "Meeting is outside your configured working hours/days." });
+      }
+      if (policy.bufferMinutes > 0) {
+        const blocked = await hasBufferConflict({
+          email: organizerEmail,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+          bufferMinutes: policy.bufferMinutes,
+        });
+        if (blocked) return res.status(409).json({ error: "Meeting violates your configured buffer time." });
+      }
       const conflict = await hasConflict(organizerEmail, slot.startTime, slot.endTime);
       if (conflict) {
         return res.status(409).json({ error: "Organizer has a meeting conflict", message: `Busy at ${slot.startTime.toISOString()}`, isBusy: true });
@@ -176,14 +210,14 @@ exports.createMeeting = async (req, res) => {
 
     for (const slot of slots) {
       const slotData = { title, startTime: slot.startTime, endTime: slot.endTime, organizerEmail, attendees: safeAttendees, timezone: tz, description: desc };
-      const videoResult = await createMeetingLink(platform, slotData, user);
+      const videoResult = await createMeetingLink(effectivePlatform, slotData, user);
       if (!videoResult.success) return res.status(502).json({ error: videoResult.error });
 
       meetingDocs.push({
         title,
         organizerEmail,
         attendees: safeAttendees,
-        platform,
+        platform: effectivePlatform,
         timezone: tz,
         description: desc,
         joinUrl: videoResult.meetingUrl,
@@ -198,7 +232,16 @@ exports.createMeeting = async (req, res) => {
       });
     }
 
-    const invitePayload = buildInvitePayload({ title, startTime: newStart, endTime: newEnd, organizerEmail, attendees: safeAttendees, description: desc, joinUrl: meetingDocs[0].joinUrl, platform });
+    const invitePayload = buildInvitePayload({
+      title,
+      startTime: newStart,
+      endTime: newEnd,
+      organizerEmail,
+      attendees: safeAttendees,
+      description: desc,
+      joinUrl: meetingDocs[0].joinUrl,
+      platform: effectivePlatform,
+    });
     const created = await saveAndInvite(meetingDocs, invitePayload);
 
     if (created.length === 1) {
@@ -253,6 +296,7 @@ exports.cancelMeeting = async (req, res) => {
 
     const user = await Employee.findById(req.user.id);
     if (!user) return res.status(404).json({ message: "User not found" });
+    const policy = readPolicy(user);
 
     const meeting = await Meeting.findById(meetingId);
     if (!meeting) return res.status(404).json({ message: "Meeting not found" });
@@ -348,6 +392,21 @@ exports.updateMeeting = async (req, res) => {
       return res.status(400).json({ error: "Cannot schedule meeting for past date or time. Please select a future date and time." });
     }
     if ((newEnd - newStart) > 24 * 60 * 60 * 1000) return res.status(400).json({ error: "Meeting duration cannot exceed 24 hours" });
+    try {
+      assertWithinWorkingPolicy({ startTime: newStart, endTime: newEnd, user });
+    } catch (_) {
+      return res.status(400).json({ error: "Meeting is outside your configured working hours/days." });
+    }
+    if (policy.bufferMinutes > 0 && (startTime || endTime)) {
+      const blocked = await hasBufferConflict({
+        email: meeting.organizerEmail,
+        startTime: newStart,
+        endTime: newEnd,
+        bufferMinutes: policy.bufferMinutes,
+        excludeMeetingId: meetingId,
+      });
+      if (blocked) return res.status(409).json({ error: "Meeting violates your configured buffer time." });
+    }
 
     if (startTime || endTime) {
       const conflict = await hasConflict(meeting.organizerEmail, newStart, newEnd, meetingId);
@@ -392,8 +451,11 @@ exports.updateMeeting = async (req, res) => {
     }
 
     if (title) meeting.title = title;
-    if (startTime) meeting.startTime = newStart;
-    if (endTime) meeting.endTime = newEnd;
+    if (startTime || endTime) {
+      if (startTime) meeting.startTime = newStart;
+      if (endTime) meeting.endTime = newEnd;
+      meeting.reminderSentAt = null;
+    }
     if (description !== undefined) meeting.description = description;
     if (safeAttendees) meeting.attendees = safeAttendees;
     if (timezone) meeting.timezone = tz;

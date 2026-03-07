@@ -39,9 +39,9 @@ exports.googleCallback = async (req, res) => {
       googleConnected: true,
       googleEmail: userInfo.data.email
     });
-    res.redirect('http://localhost:5173/dashboard?googleConnected=true');
+    res.redirect('http://localhost:5173/?googleConnected=true');
   } catch (err) {
-    res.redirect('http://localhost:5173/dashboard?error=google_failed');
+    res.redirect('http://localhost:5173/?error=google_failed');
   }
 };
 
@@ -86,9 +86,9 @@ exports.zoomCallback = async (req, res) => {
       zoomEmail
     });
 
-    res.redirect('http://localhost:5173/dashboard?zoomConnected=true');
+    res.redirect('http://localhost:5173/?zoomConnected=true');
   } catch (err) {
-    res.redirect('http://localhost:5173/dashboard?error=zoom_failed');
+    res.redirect('http://localhost:5173/?error=zoom_failed');
   }
 };
 

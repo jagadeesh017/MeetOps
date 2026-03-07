@@ -75,5 +75,24 @@ async function sendEmails(meetingData, { subject, htmlBuilder, includeICS = fals
 const sendMeetingInvites = (data) => sendEmails(data, { subject: '📅 Meeting Invite: {title}', htmlBuilder: buildInviteHTML, includeICS: true });
 const sendMeetingCancellations = (data) => sendEmails(data, { subject: '❌ Meeting Cancelled: {title}', htmlBuilder: buildCancellationHTML });
 const sendMeetingUpdates = (data) => sendEmails(data, { subject: '📝 Meeting Updated: {title}', htmlBuilder: buildUpdateHTML, includeICS: true });
+const sendMeetingReminder = (data, minutesBefore = 15) =>
+  sendEmails(
+    data,
+    {
+      subject: `⏰ Reminder (${minutesBefore} min): {title}`,
+      htmlBuilder: (meetingData) => {
+        const when = new Date(meetingData.startTime).toLocaleString("en-US");
+        return `
+          <div style="font-family:Arial,sans-serif;color:#0f172a;line-height:1.5">
+            <h2 style="margin:0 0 10px;">Meeting reminder</h2>
+            <p style="margin:0 0 10px;">Your meeting <strong>${meetingData.title}</strong> starts in <strong>${minutesBefore} minutes</strong>.</p>
+            <p style="margin:0 0 10px;"><strong>Time:</strong> ${when}</p>
+            ${meetingData.joinUrl ? `<p style="margin:0 0 10px;"><a href="${meetingData.joinUrl}" target="_blank" rel="noopener noreferrer">Join meeting</a></p>` : ""}
+          </div>
+        `;
+      },
+      includeICS: false,
+    }
+  );
 
-module.exports = { sendMeetingInvites, sendMeetingCancellations, sendMeetingUpdates };
+module.exports = { sendMeetingInvites, sendMeetingCancellations, sendMeetingUpdates, sendMeetingReminder };

@@ -114,6 +114,10 @@ const MeetingSchema = new mongoose.Schema({
     default: null
   },
 
+  reminderSentAt: {
+    type: Date,
+    default: null
+  },
 
   createdAt: {
     type: Date,

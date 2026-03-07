@@ -6,9 +6,17 @@ const googleMeetService = require("./google-meet-service");
 const emailService = require("./email-invite-service");
 const { hasConflict } = require("./conflictService");
 const { saveAndInvite } = require("./meetingService");
+const { readPolicy, assertWithinWorkingPolicy, hasBufferConflict } = require("./user-settings-policy");
 const chrono = require("chrono-node");
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const normalizeLabel = (value = "") =>
+  String(value || "")
+    .toLowerCase()
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\b(team|group|dept|department)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 
 const resolveAttendees = async (attendeeRefs) => {
   if (!attendeeRefs?.length) throw new Error("No attendees specified");
@@ -22,18 +30,31 @@ const resolveAttendees = async (attendeeRefs) => {
     emails.forEach((e) => { if (!resolved.includes(e)) resolved.push(e); });
 
   const findGroupMembers = (search) => {
-    const s = search.toLowerCase();
-    const group = allGroups.find((g) => {
-      const gn = g.name.toLowerCase();
-      return gn === s || s.includes(gn) || gn.includes(s) ||
-        s.split(/\s+/).some((w) => w.length > 1 && gn.includes(w));
-    });
-    if (!group) return null;
+    const s = normalizeLabel(search);
+    if (!s) return null;
+    const searchTokens = s.split(/\s+/).filter((w) => w.length > 1);
 
-    const firstWord = group.name.split(" ")[0].toLowerCase();
-    return allEmployees
-      .filter((e) => e.department && e.department.toLowerCase().includes(firstWord))
+    const group = allGroups.find((g) => {
+      const gn = normalizeLabel(g.name);
+      return gn === s || s.includes(gn) || gn.includes(s) ||
+        searchTokens.some((w) => gn.includes(w));
+    });
+    const groupSearchBase = group ? normalizeLabel(group.name) : s;
+
+    const deptMatches = allEmployees
+      .filter((e) => {
+        const dept = normalizeLabel(e.department || "");
+        return dept && (
+          dept === groupSearchBase ||
+          dept.includes(groupSearchBase) ||
+          groupSearchBase.includes(dept) ||
+          searchTokens.some((w) => w.length > 2 && dept.includes(w))
+        );
+      })
       .map((e) => e.email);
+
+    if (deptMatches.length) return deptMatches;
+    return null;
   };
 
   const resolved = [];
@@ -76,30 +97,34 @@ const parseTime = (timeStr, timezone = "UTC") => {
   if (!parsed) return null;
 
   try {
-    const year = parsed.getFullYear();
-    const month = parsed.getMonth();
-    const date = parsed.getDate();
-    const hours = parsed.getHours();
-    const minutes = parsed.getMinutes();
-
-    const utcTimestamp = Date.UTC(year, month, date, hours, minutes);
-
-    const testDate = new Date(utcTimestamp);
-    const tzStr = testDate.toLocaleString("en-US", { timeZone: timezone, hour12: false });
-
-    const [dPart, tPart] = tzStr.split(", ");
-    const [th, tm] = tPart.split(":").map(Number);
-
+    const y = parsed.getFullYear();
+    const m = parsed.getMonth();
+    const d = parsed.getDate();
+    const h = parsed.getHours();
+    const min = parsed.getMinutes();
+    const utcTimestamp = Date.UTC(y, m, d, h, min);
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(new Date(utcTimestamp));
+    const pick = (type) => Number(parts.find((p) => p.type === type)?.value || 0);
+    const seenHour = pick("hour");
     const tzTimestamp = Date.UTC(
-      parseInt(dPart.split("/")[2]),
-      parseInt(dPart.split("/")[0]) - 1,
-      parseInt(dPart.split("/")[1]),
-      th === 24 ? 0 : th, tm, 0
+      pick("year"),
+      pick("month") - 1,
+      pick("day"),
+      seenHour === 24 ? 0 : seenHour,
+      pick("minute"),
+      0
     );
-
     const offset = tzTimestamp - utcTimestamp;
     return new Date(utcTimestamp - offset);
-  } catch (e) {
+  } catch (_) {
     return parsed;
   }
 };
@@ -161,6 +186,15 @@ const findMeetingsBySearch = async (searchTerm, userEmail, upcomingOnly = true, 
   return [];
 };
 
+const listResolvableMeetings = async (userEmail, upcomingOnly = true, limit = 30) => {
+  const now = new Date();
+  return Meeting.find({
+    organizerEmail: userEmail,
+    status: "scheduled",
+    ...(upcomingOnly && { startTime: { $gte: now } }),
+  }).sort({ startTime: 1 }).limit(limit).lean();
+};
+
 const isTimeAvailable = async (attendeeEmails, startTime, duration) => {
   const endTime = new Date(startTime.getTime() + duration * 60000);
   const conflict = await Meeting.findOne({
@@ -172,35 +206,96 @@ const isTimeAvailable = async (attendeeEmails, startTime, duration) => {
   return !conflict;
 };
 
-const suggestTimeSlots = async (attendeeEmails, timezone = "UTC", numSlots = 5, startDate = null) => {
+const suggestTimeSlots = async (attendeeEmails, timezone = "UTC", numSlots = 5, startDate = null, options = {}) => {
   const slots = [];
-  const workHours = [9, 10, 11, 14, 15, 16, 17];
+  const slotStepMinutes = 30;
+  const slotDurationMinutes = Number(options.durationMinutes) || 60;
+  const maxDaysToScan = 14;
+  const workDays = Array.isArray(options.workDays) && options.workDays.length ? options.workDays : [1, 2, 3, 4, 5];
+  const workStartMinute = Number.isFinite(Number(options.workStartMinute)) ? Number(options.workStartMinute) : 9 * 60;
+  const workEndMinute = Number.isFinite(Number(options.workEndMinute)) ? Number(options.workEndMinute) : 18 * 60;
+  const ownerEmail = options.ownerEmail || null;
+  const bufferMinutes = Number.isFinite(Number(options.bufferMinutes)) ? Number(options.bufferMinutes) : 0;
+  const applyWorkingHours = Boolean(options.applyWorkingHours);
 
-  const setTZHour = (date, hour, tz) => {
-    const d = new Date(date);
-    d.setUTCHours(0, 0, 0, 0);
-    const tzStr = d.toLocaleString("en-US", { timeZone: tz, hour: "numeric", hour12: false });
-    const tzHour = parseInt(tzStr);
-    const serverHour = d.getUTCHours();
-    const diff = tzHour - serverHour;
-    d.setUTCHours(hour - diff, 0, 0, 0);
-    return d;
+  const getParts = (date, tz) => {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).formatToParts(date);
+    const pick = (type) => Number(parts.find((p) => p.type === type)?.value || 0);
+    const hour = pick("hour");
+    return {
+      year: pick("year"),
+      month: pick("month"),
+      day: pick("day"),
+      hour: hour === 24 ? 0 : hour,
+      minute: pick("minute"),
+    };
   };
 
-  let current = startDate ? new Date(startDate) : new Date();
+  const zonedDateTimeToUtc = (year, month, day, hour, minute, tz) => {
+    const guessUtc = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
+    const seen = getParts(guessUtc, tz);
+    const desiredUtc = Date.UTC(year, month - 1, day, hour, minute, 0);
+    const seenUtc = Date.UTC(seen.year, seen.month - 1, seen.day, seen.hour, seen.minute, 0);
+    const deltaMs = seenUtc - desiredUtc;
+    return new Date(guessUtc.getTime() - deltaMs);
+  };
 
-  while (slots.length < numSlots) {
-    current.setDate(current.getDate() + 1);
-    const day = current.getDay();
-    if (day === 0 || day === 6) continue;
+  const base = startDate ? new Date(startDate) : new Date();
+  const baseInTz = getParts(base, timezone);
+  let dayCursor = new Date(Date.UTC(baseInTz.year, baseInTz.month - 1, baseInTz.day));
+  let scannedDays = 0;
 
-    for (const hour of workHours) {
-      if (slots.length >= numSlots) break;
-      const slotTime = setTZHour(current, hour, timezone);
-      if (await isTimeAvailable(attendeeEmails, slotTime, 60)) {
-        slots.push(slotTime);
+  while (slots.length < numSlots && scannedDays < maxDaysToScan) {
+    const dayParts = getParts(dayCursor, "UTC");
+    if (applyWorkingHours) {
+      const weekday = new Date(Date.UTC(dayParts.year, dayParts.month - 1, dayParts.day)).getUTCDay();
+      if (!workDays.includes(weekday)) {
+        dayCursor.setUTCDate(dayCursor.getUTCDate() + 1);
+        scannedDays += 1;
+        continue;
       }
     }
+    const isFirstDay =
+      dayParts.year === baseInTz.year &&
+      dayParts.month === baseInTz.month &&
+      dayParts.day === baseInTz.day;
+
+    const baseMinuteOnDay = isFirstDay ? (baseInTz.hour * 60 + baseInTz.minute) : 0;
+    let startMinute = Math.ceil(baseMinuteOnDay / slotStepMinutes) * slotStepMinutes;
+    if (isFirstDay && startMinute <= baseMinuteOnDay) startMinute += slotStepMinutes;
+
+    const fromMinute = applyWorkingHours ? Math.max(startMinute, workStartMinute) : startMinute;
+    const toMinute = applyWorkingHours ? Math.max(fromMinute, workEndMinute - slotDurationMinutes) : (24 * 60 - slotDurationMinutes);
+    for (let minuteOfDay = fromMinute; minuteOfDay <= toMinute; minuteOfDay += slotStepMinutes) {
+      if (slots.length >= numSlots) break;
+      const hour = Math.floor(minuteOfDay / 60);
+      const minute = minuteOfDay % 60;
+      const slotTime = zonedDateTimeToUtc(dayParts.year, dayParts.month, dayParts.day, hour, minute, timezone);
+      if (slotTime <= base) continue;
+      const attendeeFree = await isTimeAvailable(attendeeEmails, slotTime, slotDurationMinutes);
+      if (!attendeeFree) continue;
+      if (ownerEmail && bufferMinutes > 0) {
+        const slotEnd = new Date(slotTime.getTime() + slotDurationMinutes * 60000);
+        const blocked = await hasBufferConflict({
+          email: ownerEmail,
+          startTime: slotTime,
+          endTime: slotEnd,
+          bufferMinutes,
+        });
+        if (blocked) continue;
+      }
+      slots.push(slotTime);
+    }
+    dayCursor.setUTCDate(dayCursor.getUTCDate() + 1);
+    scannedDays += 1;
   }
   return slots;
 };
@@ -215,11 +310,22 @@ const createMeeting = async (userId, userEmail, details) => {
 
   const user = await Employee.findById(userId);
   if (!user) throw new Error("User not found.");
+  const policy = readPolicy(user);
 
   const resolvedEmails = await resolveAttendees(attendees);
   const safeAttendees = resolvedEmails.map((email) => ({ email }));
   const startTime = parsedTime;
   const endTime = new Date(parsedTime.getTime() + duration * 60000);
+  assertWithinWorkingPolicy({ startTime, endTime, user });
+  if (policy.bufferMinutes > 0) {
+    const blocked = await hasBufferConflict({
+      email: userEmail,
+      startTime,
+      endTime,
+      bufferMinutes: policy.bufferMinutes,
+    });
+    if (blocked) throw new Error("buffer_conflict");
+  }
 
   const conflict = await hasConflict(userEmail, startTime, endTime);
   if (conflict) throw new Error(`You have a conflicting meeting: "${conflict.title}" at that time.`);
@@ -273,6 +379,7 @@ const createMeeting = async (userId, userEmail, details) => {
 const updateMeeting = async (meetingId, userId, userEmail, updateData) => {
   const user = await Employee.findById(userId);
   if (!user) throw new Error("User not found.");
+  const policy = readPolicy(user);
 
   const meeting = await Meeting.findById(meetingId);
   if (!meeting) throw new Error("Meeting not found.");
@@ -283,6 +390,17 @@ const updateMeeting = async (meetingId, userId, userEmail, updateData) => {
   const newStart = parsedTime || meeting.startTime;
   const existingDurationMs = new Date(meeting.endTime) - new Date(meeting.startTime);
   const newEnd = parsedTime ? new Date(parsedTime.getTime() + (duration ? duration * 60000 : existingDurationMs)) : meeting.endTime;
+  assertWithinWorkingPolicy({ startTime: newStart, endTime: newEnd, user });
+  if (policy.bufferMinutes > 0) {
+    const blocked = await hasBufferConflict({
+      email: userEmail,
+      startTime: newStart,
+      endTime: newEnd,
+      bufferMinutes: policy.bufferMinutes,
+      excludeMeetingId: meetingId,
+    });
+    if (blocked) throw new Error("buffer_conflict");
+  }
   if (new Date(newStart) <= new Date()) {
     throw new Error("Cannot schedule meeting for past date or time. Please select a future date and time.");
   }
@@ -313,7 +431,11 @@ const updateMeeting = async (meetingId, userId, userEmail, updateData) => {
   }
 
   if (title) meeting.title = title;
-  if (parsedTime) { meeting.startTime = newStart; meeting.endTime = newEnd; }
+  if (parsedTime) {
+    meeting.startTime = newStart;
+    meeting.endTime = newEnd;
+    meeting.reminderSentAt = null;
+  }
   if (attendees?.length) {
     const resolvedEmails = await resolveAttendees(attendees);
     meeting.attendees = resolvedEmails.map((email) => ({ email }));
@@ -387,6 +509,7 @@ module.exports = {
   resolveAttendees,
   parseTime,
   findMeetingsBySearch,
+  listResolvableMeetings,
   isTimeAvailable,
   suggestTimeSlots,
   createMeeting,

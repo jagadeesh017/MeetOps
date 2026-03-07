@@ -208,7 +208,7 @@ export default function CustomCalendar() {
     const [currentDate, setCurrentDate] = useState(new Date());
     const [meetings, setMeetings] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [timezone, setTimezone] = useState(getLocalTimezone() || 'Asia/Kolkata');
+    const [timezone, setTimezone] = useState(user?.settings?.timezone || getLocalTimezone() || 'Asia/Kolkata');
     const [showScheduleForm, setShowScheduleForm] = useState(false);
     const [selectedSlot, setSelectedSlot] = useState(null);
     const [selectedMeeting, setSelectedMeeting] = useState(null);
@@ -244,6 +244,10 @@ export default function CustomCalendar() {
     useEffect(() => {
         fetchMeetings();
     }, [fetchMeetings]);
+
+    useEffect(() => {
+        if (user?.settings?.timezone) setTimezone(user.settings.timezone);
+    }, [user?.settings?.timezone]);
 
     const getWeekDays = () => {
         const start = new Date(currentDate);
@@ -349,9 +353,8 @@ export default function CustomCalendar() {
 
     const calculateMeetingPosition = (meeting, slotHeight) => {
         const start = getPartsInTZ(meeting.startTime, timezone);
-        const end = getPartsInTZ(meeting.endTime, timezone);
         const startOffset = (start.minute / 60) * slotHeight;
-        const totalMinutes = (end.hour * 60 + end.minute) - (start.hour * 60 + start.minute);
+        const totalMinutes = Math.max(1, Math.round((new Date(meeting.endTime) - new Date(meeting.startTime)) / 60000));
         const height = (totalMinutes / 60) * slotHeight;
         return {
             top: start.hour * slotHeight + startOffset,
