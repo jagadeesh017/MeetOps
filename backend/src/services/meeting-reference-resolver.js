@@ -1,4 +1,5 @@
 const meetingOps = require("./meeting-operations");
+const { parseTime } = require("../utilities/date-utils");
 
 const STOP_WORDS = new Set(["meeting", "meet", "with", "on", "at", "for", "the", "a", "an", "my", "that", "this", "it"]);
 
@@ -22,7 +23,7 @@ const extractSignals = (action = {}, timezone = "UTC") => {
   const title = String(action.title || "").trim();
   const titleTokens = tokenize(title);
   const refTokens = tokenize(meetingRef);
-  const parsedTime = action.time ? meetingOps.parseTime(action.time, timezone) : null;
+  const parsedTime = action.time ? parseTime(action.time, timezone) : null;
 
   return {
     explicitId,

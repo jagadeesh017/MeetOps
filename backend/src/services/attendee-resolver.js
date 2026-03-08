@@ -11,10 +11,6 @@ const normalizeLabel = (value = "") =>
         .replace(/\s+/g, " ")
         .trim();
 
-/**
- * Resolves a list of attendee references (emails, names, or group names) into a flat list of emails.
- * Consolidates logic from meeting-operations.js and ai-scheduling-service.js.
- */
 const resolveAttendees = async (attendeeRefs) => {
     if (!attendeeRefs || !Array.isArray(attendeeRefs) || attendeeRefs.length === 0) {
         throw new Error("No attendees specified");

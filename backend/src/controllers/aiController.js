@@ -1,7 +1,8 @@
 const Employee = require("../models/employee");
 const { parsePrompt } = require("../ai/promptParser");
 const { executeIntent } = require("../ai/actionRouter");
-const { parseTime } = require("../services/meeting-operations");
+const { parseTime } = require("../utilities/date-utils");
+const { DateTime } = require("luxon");
 
 const respondOk = (res, reply, extra = {}) => res.status(200).json({ success: true, message: reply, reply, ...extra });
 const sessionState = {};
@@ -22,14 +23,9 @@ const RELATIVE_TIME_HINT = /\b(today|tomorrow|tonight|this\s+(morning|afternoon|
 const formatUserTime = (timeValue, timezone) => {
   const d = parseTime(String(timeValue || ""), timezone || "UTC");
   if (!d || Number.isNaN(new Date(d).getTime())) return String(timeValue || "");
-  return new Date(d).toLocaleString("en-US", {
-    timeZone: timezone || "UTC",
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  return DateTime.fromJSDate(new Date(d))
+    .setZone(timezone || "UTC")
+    .toFormat("ccc, LLL d, h:mm a");
 };
 
 const normalizeIntentTime = (intent = {}, userPrompt = "", timezone = "UTC") => {

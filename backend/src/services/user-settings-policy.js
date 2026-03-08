@@ -1,4 +1,5 @@
 const Meeting = require("../models/meeting");
+const { DateTime } = require("luxon");
 
 const defaultSettings = {
   timezone: "UTC",
@@ -16,22 +17,10 @@ const parseHm = (value, fallback) => {
 };
 
 const partsInTimezone = (dateInput, timezone) => {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: timezone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    weekday: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).formatToParts(new Date(dateInput));
-  const pick = (type) => parts.find((p) => p.type === type)?.value || "";
-  const h = Number(pick("hour")) === 24 ? 0 : Number(pick("hour"));
-  const dayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  const dt = DateTime.fromJSDate(new Date(dateInput)).setZone(timezone || "UTC");
   return {
-    weekday: dayMap[pick("weekday")] ?? 0,
-    minuteOfDay: h * 60 + Number(pick("minute")),
+    weekday: dt.weekday === 7 ? 0 : dt.weekday, // Luxon: Mon=1, Sun=7. System: Sun=0, Mon=1.
+    minuteOfDay: dt.hour * 60 + dt.minute,
   };
 };
 
@@ -76,10 +65,10 @@ const assertWithinWorkingPolicy = ({ startTime, endTime, user }) => {
 };
 
 const hasBufferConflict = async ({ email, startTime, endTime, bufferMinutes, excludeMeetingId = null }) => {
-  const start = new Date(startTime);
-  const end = new Date(endTime);
-  const bufferedStart = new Date(start.getTime() - bufferMinutes * 60000);
-  const bufferedEnd = new Date(end.getTime() + bufferMinutes * 60000);
+  const start = DateTime.fromJSDate(new Date(startTime));
+  const end = DateTime.fromJSDate(new Date(endTime));
+  const bufferedStart = start.minus({ minutes: bufferMinutes }).toJSDate();
+  const bufferedEnd = end.plus({ minutes: bufferMinutes }).toJSDate();
 
   const q = {
     status: { $ne: "cancelled" },

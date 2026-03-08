@@ -2,6 +2,7 @@ const meetingOps = require("./meeting-operations");
 const { resolveMeetingReference } = require("./meeting-reference-resolver");
 const Employee = require("../models/employee");
 const { readPolicy } = require("./user-settings-policy");
+const { parseTime } = require("../utilities/date-utils");
 
 const normalizePlatform = (platform) => {
   const p = String(platform || "").toLowerCase().trim();
@@ -12,10 +13,10 @@ const normalizePlatform = (platform) => {
 
 const executeSchedule = async (userId, userEmail, action) => {
   let user = null;
-  try { user = await Employee.findById(userId).select("settings"); } catch (_) {}
+  try { user = await Employee.findById(userId).select("settings"); } catch (_) { }
   const defaultPlatform = user?.settings?.defaultPlatform || "zoom";
   const defaultDuration = Number(user?.settings?.defaultDurationMinutes) || 60;
-  const parsedTime = meetingOps.parseTime(action.time, action.timezone || user?.settings?.timezone || "UTC");
+  const parsedTime = parseTime(action.time, action.timezone || user?.settings?.timezone || "UTC");
   if (!parsedTime) throw new Error("invalid_time");
 
   const meeting = await meetingOps.createMeeting(userId, userEmail, {
@@ -47,7 +48,7 @@ const executeUpdate = async (userId, userEmail, action) => {
   const updateData = {};
   if (action.title) updateData.title = action.title;
   if (action.time) {
-    const parsedTime = meetingOps.parseTime(action.time, action.timezone);
+    const parsedTime = parseTime(action.time, action.timezone);
     if (!parsedTime) throw new Error("invalid_time");
     updateData.parsedTime = parsedTime;
   }
@@ -70,9 +71,9 @@ const executeSlots = async (userId, userEmail, action) => {
   }
 
   let user = null;
-  try { user = await Employee.findById(userId).select("settings"); } catch (_) {}
+  try { user = await Employee.findById(userId).select("settings"); } catch (_) { }
   const policy = readPolicy(user || {});
-  const startDate = action.time ? meetingOps.parseTime(action.time, action.timezone || "UTC") : null;
+  const startDate = action.time ? parseTime(action.time, action.timezone || "UTC") : null;
   const slots = await meetingOps.suggestTimeSlots(
     emails,
     action.timezone || policy.timezone || "UTC",

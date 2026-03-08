@@ -8,28 +8,44 @@ const { saveAndInvite } = require("./meetingService");
 const { readPolicy, assertWithinWorkingPolicy, hasBufferConflict } = require("./user-settings-policy");
 const { generateSlots } = require("../utilities/recurrence");
 
-// New modular services
 const { resolveAttendees } = require("./attendee-resolver");
-const { parseTime } = require("./time-parser");
+const { parseTime } = require("../utilities/date-utils");
 const { findMeetingsBySearch, listResolvableMeetings } = require("./meeting-lookup");
 const { isTimeAvailable, suggestTimeSlots, findFirstAvailableSlot } = require("./scheduling-engine");
+const { generateSlots } = require("../utilities/recurrence");
 
 /**
- * Platform-specific meeting creation helper.
+ * Validates a meeting's time against user policies (working hours, buffers).
  */
-async function createPlatformMeeting(platform, meetingPayload, user, userId) {
-  let joinUrl = null;
-  let externalId = null;
+async function validateMeetingPolicy(user, userEmail, startTime, endTime, excludeMeetingId = null) {
+  const policy = readPolicy(user);
+  assertWithinWorkingPolicy({ startTime, endTime, user });
+
+  if (policy.bufferMinutes > 0) {
+    const blocked = await hasBufferConflict({
+      email: userEmail,
+      startTime,
+      endTime,
+      bufferMinutes: policy.bufferMinutes,
+      excludeMeetingId,
+    });
+    if (blocked) throw new Error("buffer_conflict");
+  }
+}
+
+
+async function withPlatformRetry(userId, platform, actionFn) {
+  const user = await Employee.findById(userId);
+  if (!user) throw new Error("User not found.");
 
   if (platform === "zoom") {
     if (!user.zoomConnected) throw new Error("Your Zoom account is not connected. Please connect it in Integrations.");
-    let result = await zoomService.createZoomMeeting(meetingPayload, user.zoomAccessToken, user.zoomRefreshToken);
+    let result = await actionFn(user.zoomAccessToken, user.zoomRefreshToken);
 
-    // Handle token refresh retry
     if (!result.success && result.status === 400 && typeof result.error === "string" && result.error.toLowerCase().includes("refresh")) {
       const latestUser = await Employee.findById(userId);
       if (latestUser?.zoomRefreshToken && latestUser.zoomRefreshToken !== user.zoomRefreshToken) {
-        result = await zoomService.createZoomMeeting(meetingPayload, latestUser.zoomAccessToken, latestUser.zoomRefreshToken);
+        result = await actionFn(latestUser.zoomAccessToken, latestUser.zoomRefreshToken);
         if (result.success && result.newTokens) {
           latestUser.zoomAccessToken = result.newTokens.access_token;
           if (result.newTokens.refresh_token) latestUser.zoomRefreshToken = result.newTokens.refresh_token;
@@ -44,15 +60,11 @@ async function createPlatformMeeting(platform, meetingPayload, user, userId) {
       await user.save();
     }
 
-    if (!result.success) throw new Error(result.error || "Failed to create Zoom meeting.");
-    joinUrl = result.meetingUrl;
-    externalId = result.meetingId;
+    if (!result.success) throw new Error(result.error || `Failed Zoom action.`);
+    return result;
   } else if (platform === "google" || platform === "meet") {
     if (!user.googleConnected) throw new Error("Your Google account is not connected. Please connect it in Integrations.");
-    const result = await googleMeetService.createGoogleMeetMeeting(meetingPayload, {
-      refreshToken: user.googleRefreshToken,
-      accessToken: user.googleAccessToken
-    });
+    const result = await actionFn(user.googleAccessToken, user.googleRefreshToken);
 
     if (result.newTokens) {
       if (result.newTokens.access_token) user.googleAccessToken = result.newTokens.access_token;
@@ -60,17 +72,28 @@ async function createPlatformMeeting(platform, meetingPayload, user, userId) {
       await user.save();
     }
 
-    if (!result.success) throw new Error(result.error || "Failed to create Google Meet.");
-    joinUrl = result.hangoutLink || result.meetingUrl;
-    externalId = result.eventId;
+    if (!result.success) throw new Error(result.error || `Failed Google Meet action.`);
+    return result;
   }
-
-  return { joinUrl, externalId };
 }
 
-/**
- * Unified meeting creation logic.
- */
+
+async function createPlatformMeeting(platform, meetingPayload, user, userId) {
+  const result = await withPlatformRetry(userId, platform, async (accessToken, refreshToken) => {
+    if (platform === "zoom") {
+      return zoomService.createZoomMeeting(meetingPayload, accessToken, refreshToken);
+    } else {
+      return googleMeetService.createGoogleMeetMeeting(meetingPayload, { refreshToken, accessToken });
+    }
+  });
+
+  return {
+    joinUrl: result.meetingUrl || result.hangoutLink,
+    externalId: result.meetingId || result.eventId
+  };
+}
+
+//create
 const createMeeting = async (userId, userEmail, details) => {
   const {
     title,
@@ -119,17 +142,7 @@ const createMeeting = async (userId, userEmail, details) => {
   });
 
   for (const slot of slots) {
-    assertWithinWorkingPolicy({ startTime: slot.startTime, endTime: slot.endTime, user });
-
-    if (policy.bufferMinutes > 0) {
-      const blocked = await hasBufferConflict({
-        email: userEmail,
-        startTime: slot.startTime,
-        endTime: slot.endTime,
-        bufferMinutes: policy.bufferMinutes,
-      });
-      if (blocked) throw new Error("buffer_conflict");
-    }
+    await validateMeetingPolicy(user, userEmail, slot.startTime, slot.endTime);
 
     if (!ignoreBusy) {
       const conflict = await hasConflict(userEmail, slot.startTime, slot.endTime);
@@ -186,9 +199,7 @@ const createMeeting = async (userId, userEmail, details) => {
   return isRecurring ? { message: `Created ${created.length} recurring meetings`, meetings: created, seriesId } : created[0];
 };
 
-/**
- * Unified meeting update logic.
- */
+//update
 const updateMeeting = async (meetingId, userId, userEmail, updateData) => {
   const user = await Employee.findById(userId);
   if (!user) throw new Error("User not found.");
@@ -204,18 +215,7 @@ const updateMeeting = async (meetingId, userId, userEmail, updateData) => {
   const existingDurationMs = new Date(meeting.endTime) - new Date(meeting.startTime);
   const newEnd = parsedTime ? new Date(parsedTime.getTime() + (duration ? duration * 60000 : existingDurationMs)) : meeting.endTime;
 
-  assertWithinWorkingPolicy({ startTime: newStart, endTime: newEnd, user });
-
-  if (policy.bufferMinutes > 0) {
-    const blocked = await hasBufferConflict({
-      email: userEmail,
-      startTime: newStart,
-      endTime: newEnd,
-      bufferMinutes: policy.bufferMinutes,
-      excludeMeetingId: meetingId,
-    });
-    if (blocked) throw new Error("buffer_conflict");
-  }
+  await validateMeetingPolicy(user, userEmail, newStart, newEnd, meetingId);
 
   if (new Date(newStart) <= new Date()) {
     throw new Error("Cannot schedule meeting for past date or time. Please select a future date and time.");
@@ -232,31 +232,13 @@ const updateMeeting = async (meetingId, userId, userEmail, updateData) => {
       description: description || meeting.description
     };
 
-    if (meeting.platform === "zoom") {
-      let result = await zoomService.updateZoomMeeting(meeting.externalId, platformPayload, user.zoomAccessToken, user.zoomRefreshToken);
-      // Retry logic for Zoom
-      if (!result?.success && result?.status === 400 && typeof result.error === "string" && result.error.toLowerCase().includes("refresh")) {
-        const latestUser = await Employee.findById(userId);
-        if (latestUser?.zoomRefreshToken && latestUser.zoomRefreshToken !== user.zoomRefreshToken) {
-          result = await zoomService.updateZoomMeeting(meeting.externalId, platformPayload, latestUser.zoomAccessToken, latestUser.zoomRefreshToken);
-          if (result?.success && result.newTokens) {
-            latestUser.zoomAccessToken = result.newTokens.access_token;
-            if (result.newTokens.refresh_token) latestUser.zoomRefreshToken = result.newTokens.refresh_token;
-            await latestUser.save();
-          }
-        }
+    await withPlatformRetry(userId, meeting.platform, async (accessToken, refreshToken) => {
+      if (meeting.platform === "zoom") {
+        return zoomService.updateZoomMeeting(meeting.externalId, platformPayload, accessToken, refreshToken);
+      } else {
+        return googleMeetService.updateGoogleMeetEvent(meeting.externalId, platformPayload, { refreshToken, accessToken });
       }
-      if (result?.success && result.newTokens) {
-        user.zoomAccessToken = result.newTokens.access_token;
-        if (result.newTokens.refresh_token) user.zoomRefreshToken = result.newTokens.refresh_token;
-        await user.save();
-      }
-    } else if (meeting.platform === "google" || meeting.platform === "meet") {
-      await googleMeetService.updateGoogleMeetEvent(meeting.externalId, platformPayload, {
-        refreshToken: user.googleRefreshToken,
-        accessToken: user.googleAccessToken
-      });
-    }
+    });
   }
 
   if (title) meeting.title = title;
@@ -298,30 +280,13 @@ const deleteMeeting = async (meetingId, userId, userEmail) => {
   if (meeting.organizerEmail !== userEmail) throw new Error("Only the organizer can cancel this meeting.");
 
   if (meeting.externalId) {
-    if (meeting.platform === "zoom") {
-      let result = await zoomService.deleteZoomMeeting(meeting.externalId, user.zoomAccessToken, user.zoomRefreshToken);
-      if (!result?.success && result?.status === 400 && typeof result.error === "string" && result.error.toLowerCase().includes("refresh")) {
-        const latestUser = await Employee.findById(userId);
-        if (latestUser?.zoomRefreshToken && latestUser.zoomRefreshToken !== user.zoomRefreshToken) {
-          result = await zoomService.deleteZoomMeeting(meeting.externalId, latestUser.zoomAccessToken, latestUser.zoomRefreshToken);
-          if (result?.success && result.newTokens) {
-            latestUser.zoomAccessToken = result.newTokens.access_token;
-            if (result.newTokens.refresh_token) latestUser.zoomRefreshToken = result.newTokens.refresh_token;
-            await latestUser.save();
-          }
-        }
+    await withPlatformRetry(userId, meeting.platform, async (accessToken, refreshToken) => {
+      if (meeting.platform === "zoom") {
+        return zoomService.deleteZoomMeeting(meeting.externalId, accessToken, refreshToken);
+      } else {
+        return googleMeetService.deleteGoogleMeetEvent(meeting.externalId, { refreshToken, accessToken });
       }
-      if (result?.success && result.newTokens) {
-        user.zoomAccessToken = result.newTokens.access_token;
-        if (result.newTokens.refresh_token) user.zoomRefreshToken = result.newTokens.refresh_token;
-        await user.save();
-      }
-    } else if (meeting.platform === "google" || meeting.platform === "meet") {
-      await googleMeetService.deleteGoogleMeetEvent(meeting.externalId, {
-        refreshToken: user.googleRefreshToken,
-        accessToken: user.googleAccessToken
-      });
-    }
+    });
   }
 
   meeting.status = "cancelled";

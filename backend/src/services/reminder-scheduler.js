@@ -1,6 +1,7 @@
 const Meeting = require("../models/meeting");
 const Employee = require("../models/employee");
 const { sendMeetingReminder } = require("./email-invite-service");
+const { DateTime } = require("luxon");
 
 let timer = null;
 let isRunning = false;
@@ -10,8 +11,9 @@ const shouldSendReminder = ({ meeting, settings, now }) => {
   if (meeting.reminderSentAt) return false;
   if (!settings?.notifications?.emailRemindersEnabled) return false;
   const beforeMin = Number(settings.notifications.reminderMinutesBefore || 15);
-  const reminderAt = new Date(new Date(meeting.startTime).getTime() - beforeMin * 60000);
-  return reminderAt <= now && new Date(meeting.startTime) > now;
+  const reminderAt = DateTime.fromJSDate(new Date(meeting.startTime)).minus({ minutes: beforeMin });
+  const current = DateTime.fromJSDate(now);
+  return current >= reminderAt && current < DateTime.fromJSDate(new Date(meeting.startTime));
 };
 
 const processReminders = async () => {
@@ -19,7 +21,7 @@ const processReminders = async () => {
   isRunning = true;
   try {
     const now = new Date();
-    const horizon = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    const horizon = DateTime.fromJSDate(now).plus({ days: 1 }).toJSDate();
     const meetings = await Meeting.find({
       status: "scheduled",
       reminderSentAt: null,

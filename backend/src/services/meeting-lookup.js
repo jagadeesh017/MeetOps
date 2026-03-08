@@ -1,10 +1,7 @@
 const Meeting = require("../models/meeting");
-const { parseTime } = require("./time-parser");
+const { parseTime } = require("../utilities/date-utils");
 
-/**
- * Meeting lookup utilities.
- * Consolidates logic from meeting-operations.js.
- */
+
 
 const findMeetingsBySearch = async (searchTerm, userEmail, upcomingOnly = true, timezone = "UTC") => {
     if (!searchTerm?.trim()) return [];
