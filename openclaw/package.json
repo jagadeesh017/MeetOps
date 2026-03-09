@@ -1,0 +1,13 @@
+{
+  "name": "meetops-openclaw",
+  "version": "1.0.0",
+  "description": "OpenClaw Telegram integration for MeetOps",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "node-fetch": "^2.6.12",
+    "dotenv": "^16.3.1"
+  }
+}

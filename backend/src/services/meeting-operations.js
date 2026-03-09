@@ -12,7 +12,6 @@ const { resolveAttendees } = require("./attendee-resolver");
 const { parseTime } = require("../utilities/date-utils");
 const { findMeetingsBySearch, listResolvableMeetings } = require("./meeting-lookup");
 const { isTimeAvailable, suggestTimeSlots, findFirstAvailableSlot } = require("./scheduling-engine");
-const { generateSlots } = require("../utilities/recurrence");
 
 /**
  * Validates a meeting's time against user policies (working hours, buffers).
