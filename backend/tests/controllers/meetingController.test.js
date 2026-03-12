@@ -7,6 +7,7 @@ const save = require('../../src/services/save');
 const emailService = require('../../src/services/invites');
 const conflicts = require('../../src/services/conflicts');
 const recurrenceUtil = require('../../src/utilities/recurrence');
+const meetingOperations = require('../../src/services/operations');
 
 const Cluster = require('../../src/models/groups');
 
@@ -19,6 +20,7 @@ jest.mock('../../src/services/save');
 jest.mock('../../src/services/invites');
 jest.mock('../../src/services/conflicts');
 jest.mock('../../src/utilities/recurrence');
+jest.mock('../../src/services/operations');
 
 describe('Meeting Controller', () => {
   let req, res;
@@ -147,17 +149,13 @@ describe('Meeting Controller', () => {
     });
 
     it('should create a meeting successfully', async () => {
-      const mockMeeting = {
-        _id: 'meeting123',
-        title: 'Team Meeting'
-      };
-
-      save.saveAndInvite.mockResolvedValue([mockMeeting]);
+      const mockMeeting = { _id: 'meeting123', title: 'Team Meeting' };
+      meetingOperations.createMeeting.mockResolvedValue(mockMeeting);
+      req.user = { id: 'user123' };
 
       await meetingController.createMeeting(req, res);
 
-      expect(Employee.findById).toHaveBeenCalledWith('user123');
-      expect(save.saveAndInvite).toHaveBeenCalled();
+      expect(meetingOperations.createMeeting).toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(201);
       expect(res.json).toHaveBeenCalledWith(mockMeeting);
     });
@@ -186,13 +184,13 @@ describe('Meeting Controller', () => {
     });
 
     it('should return 404 if organizer not found', async () => {
-      Employee.findById.mockResolvedValue(null);
+      meetingOperations.createMeeting.mockRejectedValue(new Error('User not found'));
 
       await meetingController.createMeeting(req, res);
 
       expect(res.status).toHaveBeenCalledWith(404);
       expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({ message: expect.any(String) })
+        expect.objectContaining({ message: 'User not found' })
       );
     });
 
@@ -221,12 +219,12 @@ describe('Meeting Controller', () => {
     });
 
     it('should handle errors gracefully', async () => {
-      Employee.findById.mockRejectedValue(new Error('DB error'));
+      meetingOperations.createMeeting.mockRejectedValue(new Error('DB error'));
 
       await meetingController.createMeeting(req, res);
 
       expect(res.status).toHaveBeenCalledWith(500);
-      expect(res.json).toHaveBeenCalledWith({ error: 'DB error' });
+      expect(res.json).toHaveBeenCalledWith({ message: 'DB error', error: 'DB error' });
     });
   });
 
@@ -241,35 +239,21 @@ describe('Meeting Controller', () => {
     });
 
     it('should return available status when no conflicts', async () => {
-      conflicts.hasConflict.mockResolvedValue(null);
+      meetingOperations.resolveAttendees.mockResolvedValue(['attendee1@example.com', 'attendee2@example.com']);
+      meetingOperations.isTimeAvailable.mockResolvedValue(true);
 
       await meetingController.checkAttendeeAvailability(req, res);
 
-      expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          available: true,
-          busyAttendees: []
-        })
-      );
+      expect(res.json).toHaveBeenCalledWith({ available: true });
     });
 
     it('should return conflicts when attendees are busy', async () => {
-      conflicts.hasConflict.mockResolvedValue({
-        title: 'Another Meeting',
-        startTime: new Date(),
-        endTime: new Date()
-      });
+      meetingOperations.resolveAttendees.mockResolvedValue(['attendee1@example.com']);
+      meetingOperations.isTimeAvailable.mockResolvedValue(false);
 
       await meetingController.checkAttendeeAvailability(req, res);
 
-      expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          available: false,
-          busyAttendees: expect.arrayContaining([
-            expect.objectContaining({ email: 'attendee1@example.com' })
-          ])
-        })
-      );
+      expect(res.json).toHaveBeenCalledWith({ available: false });
     });
 
     it('should return 400 for missing fields', async () => {
@@ -284,12 +268,12 @@ describe('Meeting Controller', () => {
     });
 
     it('should handle errors', async () => {
-      conflicts.hasConflict.mockRejectedValue(new Error('Service error'));
+      meetingOperations.resolveAttendees.mockRejectedValue(new Error('Service error'));
 
       await meetingController.checkAttendeeAvailability(req, res);
 
       expect(res.status).toHaveBeenCalledWith(500);
-      expect(res.json).toHaveBeenCalledWith({ error: 'Service error' });
+      expect(res.json).toHaveBeenCalledWith({ message: 'Service error', error: 'Service error' });
     });
   });
 
@@ -305,194 +289,166 @@ describe('Meeting Controller', () => {
     });
 
     it('should cancel meeting successfully', async () => {
-      const mockMeeting = {
-        _id: 'meeting123',
-        title: 'Team Meeting',
-        organizerEmail: 'organizer@example.com',
-        attendees: [{ email: 'att@example.com' }],
-        platform: null,
-        status: 'scheduled',
-        save: jest.fn().mockResolvedValue()
-      };
-
-      Meeting.findById.mockResolvedValue(mockMeeting);
-      emailService.sendMeetingCancellations.mockResolvedValue({ sent: 1, failed: 0 });
+      const mockResult = { id: 'meeting123', title: 'Team Meeting' };
+      meetingOperations.deleteMeeting.mockResolvedValue(mockResult);
+      req.user = { id: 'user123', email: 'organizer@example.com' };
 
       await meetingController.cancelMeeting(req, res);
 
-      expect(mockMeeting.status).toBe('cancelled');
-      expect(mockMeeting.save).toHaveBeenCalled();
-      expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({ success: true, message: expect.any(String) })
-      );
+      expect(meetingOperations.deleteMeeting).toHaveBeenCalledWith('meeting123', 'user123', 'organizer@example.com');
+      expect(res.json).toHaveBeenCalledWith({
+        success: true,
+        message: 'Meeting cancelled',
+        meeting: mockResult
+      });
     });
 
     it('should return 404 if user not found', async () => {
-      Employee.findById.mockResolvedValue(null);
+      meetingOperations.deleteMeeting.mockRejectedValue(new Error('User not found'));
 
       await meetingController.cancelMeeting(req, res);
 
       expect(res.status).toHaveBeenCalledWith(404);
       expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({ message: expect.any(String) })
+        expect.objectContaining({ message: 'User not found' })
       );
     });
 
     it('should return 404 if meeting not found', async () => {
-      Meeting.findById.mockResolvedValue(null);
+      meetingOperations.deleteMeeting.mockRejectedValue(new Error('Meeting not found'));
 
       await meetingController.cancelMeeting(req, res);
 
       expect(res.status).toHaveBeenCalledWith(404);
       expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({ message: expect.any(String) })
+        expect.objectContaining({ message: 'Meeting not found' })
       );
     });
 
     it('should return 403 if user is not the organizer', async () => {
-      const mockMeeting = {
-        organizerEmail: 'other@example.com',
-        status: 'scheduled'
-      };
-
-      Meeting.findById.mockResolvedValue(mockMeeting);
+      meetingOperations.deleteMeeting.mockRejectedValue(new Error('Only the organizer can cancel this meeting.'));
 
       await meetingController.cancelMeeting(req, res);
 
       expect(res.status).toHaveBeenCalledWith(403);
       expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({ message: expect.any(String) })
+        expect.objectContaining({ message: expect.stringContaining('organizer') })
       );
     });
 
     it('should return 400 if meeting is already cancelled', async () => {
-      const mockMeeting = {
-        organizerEmail: 'organizer@example.com',
-        status: 'cancelled'
-      };
-
-      Meeting.findById.mockResolvedValue(mockMeeting);
+      meetingOperations.deleteMeeting.mockRejectedValue(new Error('Meeting is already cancelled.'));
 
       await meetingController.cancelMeeting(req, res);
 
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({ message: expect.any(String) })
+        expect.objectContaining({ message: expect.stringContaining('already cancelled') })
       );
     });
 
     it('should cancel Zoom meeting when platform is zoom', async () => {
-      const mockMeeting = {
-        _id: 'meeting123',
-        organizerEmail: 'organizer@example.com',
-        platform: 'zoom',
-        externalId: '123456',
-        status: 'scheduled',
-        attendees: [],
-        save: jest.fn().mockResolvedValue()
-      };
-
-      Meeting.findById.mockResolvedValue(mockMeeting);
-      Employee.findById.mockResolvedValue({
-        _id: 'user123',
-        email: 'organizer@example.com',
-        zoomAccessToken: 'zoom_token',
-        zoomRefreshToken: 'refresh_token',
-        save: jest.fn().mockResolvedValue()
-      });
-      zoomService.deleteZoomMeeting.mockResolvedValue({ success: true });
+      meetingOperations.deleteMeeting.mockResolvedValue({ success: true });
+      req.user = { id: 'user123', email: 'organizer@example.com' };
 
       await meetingController.cancelMeeting(req, res);
 
-      expect(zoomService.deleteZoomMeeting).toHaveBeenCalledWith('123456', 'zoom_token', 'refresh_token');
-      expect(mockMeeting.save).toHaveBeenCalled();
+      expect(meetingOperations.deleteMeeting).toHaveBeenCalled();
     });
 
     it('should cancel Google Meet meeting when platform is google', async () => {
-      const mockMeeting = {
-        _id: 'meeting123',
-        organizerEmail: 'organizer@example.com',
-        platform: 'google',
-        externalId: 'event123',
-        status: 'scheduled',
-        attendees: [],
-        save: jest.fn().mockResolvedValue()
-      };
-
-      Meeting.findById.mockResolvedValue(mockMeeting);
-      Employee.findById.mockResolvedValue({
-        _id: 'user123',
-        email: 'organizer@example.com',
-        googleConnected: true,
-        googleAccessToken: 'google_token',
-        googleRefreshToken: 'refresh_token'
-      });
-      googleMeetService.deleteGoogleMeetEvent.mockResolvedValue({ success: true });
+      meetingOperations.deleteMeeting.mockResolvedValue({ success: true });
+      req.user = { id: 'user123', email: 'organizer@example.com' };
 
       await meetingController.cancelMeeting(req, res);
 
-      expect(googleMeetService.deleteGoogleMeetEvent).toHaveBeenCalledWith(
-        'event123',
-        {
-          refreshToken: 'refresh_token',
-          accessToken: 'google_token'
-        }
-      );
-      expect(mockMeeting.save).toHaveBeenCalled();
+      expect(meetingOperations.deleteMeeting).toHaveBeenCalled();
     });
 
     it('should handle external cancellation failure gracefully', async () => {
-      const mockMeeting = {
-        _id: 'meeting123',
-        organizerEmail: 'organizer@example.com',
-        platform: 'zoom',
-        externalId: '123456',
-        status: 'scheduled',
-        attendees: [],
-        save: jest.fn().mockResolvedValue()
-      };
-
-      Meeting.findById.mockResolvedValue(mockMeeting);
-      Employee.findById.mockResolvedValue({
-        _id: 'user123',
-        email: 'organizer@example.com',
-        zoomAccessToken: 'zoom_token',
-        zoomRefreshToken: 'refresh_token'
-      });
-      zoomService.deleteZoomMeeting.mockResolvedValue({ success: false, error: 'Zoom API error' });
+      meetingOperations.deleteMeeting.mockRejectedValue(new Error('Failed Zoom action.'));
 
       await meetingController.cancelMeeting(req, res);
 
       expect(res.status).toHaveBeenCalledWith(502);
-      expect(mockMeeting.save).not.toHaveBeenCalled();
     });
 
     it('should handle email sending failure gracefully', async () => {
-      const mockMeeting = {
-        _id: 'meeting123',
-        organizerEmail: 'organizer@example.com',
-        attendees: [{ email: 'att@example.com' }],
-        status: 'scheduled',
-        platform: null,
-        save: jest.fn().mockResolvedValue()
-      };
-
-      Meeting.findById.mockResolvedValue(mockMeeting);
-      emailService.sendMeetingCancellations.mockRejectedValue(new Error('Email error'));
+      meetingOperations.deleteMeeting.mockResolvedValue({ success: true });
 
       await meetingController.cancelMeeting(req, res);
 
-      expect(mockMeeting.save).toHaveBeenCalled();
       expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
     });
 
     it('should handle general errors', async () => {
-      Meeting.findById.mockRejectedValue(new Error('DB error'));
+      meetingOperations.deleteMeeting.mockRejectedValue(new Error('DB error'));
 
       await meetingController.cancelMeeting(req, res);
 
       expect(res.status).toHaveBeenCalledWith(500);
-      expect(res.json).toHaveBeenCalledWith({ error: 'DB error' });
+      expect(res.json).toHaveBeenCalledWith({ message: 'DB error', error: 'DB error' });
+    });
+  });
+
+  describe('updateMeeting', () => {
+    it('should update meeting successfully', async () => {
+      const mockMeeting = { _id: 'meeting123', title: 'Updated Title' };
+      meetingOperations.updateMeeting.mockResolvedValue(mockMeeting);
+      req.params = { meetingId: 'meeting123' };
+      req.body = { title: 'Updated Title' };
+      req.user = { id: 'user123', email: 'organizer@example.com' };
+
+      await meetingController.updateMeeting(req, res);
+
+      expect(meetingOperations.updateMeeting).toHaveBeenCalled();
+      expect(res.json).toHaveBeenCalledWith({
+        success: true,
+        message: 'Meeting updated',
+        meeting: mockMeeting
+      });
+    });
+
+    it('should return 404 if meeting not found', async () => {
+      meetingOperations.updateMeeting.mockRejectedValue(new Error('Meeting not found'));
+
+      await meetingController.updateMeeting(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(404);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Meeting not found' })
+      );
+    });
+
+    it('should return 403 if user is not the organizer', async () => {
+      meetingOperations.updateMeeting.mockRejectedValue(new Error('Only the organizer can edit this meeting.'));
+
+      await meetingController.updateMeeting(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringContaining('organizer') })
+      );
+    });
+
+    it('should return 400 if meeting is already cancelled', async () => {
+      meetingOperations.updateMeeting.mockRejectedValue(new Error('Cannot edit a cancelled meeting.'));
+
+      await meetingController.updateMeeting(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringContaining('cancelled') })
+      );
+    });
+
+    it('should handle general errors', async () => {
+      meetingOperations.updateMeeting.mockRejectedValue(new Error('DB error'));
+
+      await meetingController.updateMeeting(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith({ message: 'DB error', error: 'DB error' });
     });
   });
 });
