@@ -96,7 +96,7 @@ describe('Meeting Controller', () => {
       await meetingController.getMeetings(req, res);
 
       expect(res.status).toHaveBeenCalledWith(500);
-      expect(res.json).toHaveBeenCalledWith({ error: 'DB error' });
+      expect(res.json).toHaveBeenCalledWith({ message: 'DB error', error: 'DB error' });
     });
   });
 
@@ -162,6 +162,7 @@ describe('Meeting Controller', () => {
 
     it('should return 400 if required fields are missing', async () => {
       req.body = { title: 'Meeting' };
+      meetingOperations.createMeeting.mockRejectedValue(new Error('Please specify at least one attendee.'));
 
       await meetingController.createMeeting(req, res);
 
@@ -174,12 +175,13 @@ describe('Meeting Controller', () => {
     it('should return 400 if endTime is before startTime', async () => {
       req.body.startTime = new Date('2026-04-01T11:00:00Z');
       req.body.endTime = new Date('2026-04-01T10:00:00Z');
+      meetingOperations.createMeeting.mockRejectedValue(new Error('past date or time'));
 
       await meetingController.createMeeting(req, res);
 
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({ error: expect.stringContaining('after') })
+        expect.objectContaining({ message: expect.stringContaining('past') })
       );
     });
 
@@ -199,23 +201,14 @@ describe('Meeting Controller', () => {
       req.body.recurrencePattern = 'DAILY';
       req.body.recurrenceCount = 5;
 
-      const mockMeetings = [
-        { _id: 'meeting1', title: 'Team Meeting' },
-        { _id: 'meeting2', title: 'Team Meeting' }
-      ];
-
-      recurrenceUtil.generateSlots.mockReturnValue([
-        { startTime: new Date('2026-04-01T10:00:00Z'), endTime: new Date('2026-04-01T11:00:00Z') },
-        { startTime: new Date('2026-04-02T10:00:00Z'), endTime: new Date('2026-04-02T11:00:00Z') }
-      ]);
-
-      save.saveAndInvite.mockResolvedValue(mockMeetings);
+      const mockResult = { message: 'Created 5 recurring meetings' };
+      meetingOperations.createMeeting.mockResolvedValue(mockResult);
 
       await meetingController.createMeeting(req, res);
 
-      expect(recurrenceUtil.generateSlots).toHaveBeenCalled();
-      expect(save.saveAndInvite).toHaveBeenCalled();
+      expect(meetingOperations.createMeeting).toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(201);
+      expect(res.json).toHaveBeenCalledWith(mockResult);
     });
 
     it('should handle errors gracefully', async () => {

@@ -89,7 +89,7 @@ exports.cancelMeeting = async (req, res) => {
     let status = 500;
     if (err.message.includes("not found")) status = 404;
     else if (err.message.includes("Only the organizer")) status = 403;
-    else if (err.message.includes("already cancelled") || err.message.includes("Past meetings")) status = 400;
+    else if (err.message.includes("cancelled") || err.message.includes("Past meetings")) status = 400;
     else if (err.message.includes("Failed Zoom") || err.message.includes("Failed Google")) status = 502;
     return res.status(status).json({ message: err.message, error: err.message });
   }
@@ -117,7 +117,7 @@ exports.updateMeeting = async (req, res) => {
     let status = 500;
     if (err.message.includes("not found")) status = 404;
     else if (err.message.includes("Only the organizer")) status = 403;
-    else if (err.message.includes("already cancelled") || err.message.includes("Past meetings")) status = 400;
+    else if (err.message.includes("cancelled") || err.message.includes("Past meetings")) status = 400;
     return res.status(status).json({ message: err.message, error: err.message });
   }
 };
