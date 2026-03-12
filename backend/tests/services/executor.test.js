@@ -1,12 +1,12 @@
-jest.mock('../../src/services/meeting-operations');
-jest.mock('../../src/services/meeting-reference-resolver', () => ({
+jest.mock('../../src/services/operations');
+jest.mock('../../src/services/resolver', () => ({
   resolveMeetingReference: jest.fn(),
 }));
 
-const meetingOps = require('../../src/services/meeting-operations');
-const { runAction } = require('../../src/services/ai-action-executor');
+const meetingOps = require('../../src/services/operations');
+const { runAction } = require('../../src/services/executor');
 
-describe('ai-action-executor', () => {
+describe('executor', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     meetingOps.parseTime.mockReturnValue(new Date('2028-01-01T10:00:00.000Z'));

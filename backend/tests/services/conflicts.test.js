@@ -1,4 +1,4 @@
-const { findConflicts, hasConflict, checkAttendeesConflicts } = require('../../src/services/conflictService');
+const { findConflicts, hasConflict, checkAttendeesConflicts } = require('../../src/services/conflicts');
 const Meeting = require('../../src/models/meeting');
 
 // Mock Meeting model

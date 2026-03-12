@@ -1,17 +1,17 @@
 const Employee = require("../models/employee");
 const Meeting = require("../models/meeting");
-const zoomService = require("./zoom-service");
-const googleMeetService = require("./google-meet-service");
-const emailService = require("./email-invite-service");
-const { hasConflict } = require("./conflictService");
-const { saveAndInvite } = require("./meetingService");
-const { readPolicy, assertWithinWorkingPolicy, hasBufferConflict } = require("./user-settings-policy");
+const zoomService = require("./zoom");
+const googleMeetService = require("./google");
+const emailService = require("./invites");
+const { hasConflict } = require("./conflicts");
+const { saveAndInvite } = require("./save");
+const { readPolicy, assertWithinWorkingPolicy, hasBufferConflict } = require("./policies");
 const { generateSlots } = require("../utilities/recurrence");
 
-const { resolveAttendees } = require("./attendee-resolver");
+const { resolveAttendees } = require("./attendees");
 const { parseTime } = require("../utilities/date-utils");
-const { findMeetingsBySearch, listResolvableMeetings } = require("./meeting-lookup");
-const { isTimeAvailable, suggestTimeSlots, findFirstAvailableSlot } = require("./scheduling-engine");
+const { findMeetingsBySearch, listResolvableMeetings } = require("./lookup");
+const { isTimeAvailable, suggestTimeSlots, findFirstAvailableSlot } = require("./scheduler");
 
 /**
  * Validates a meeting's time against user policies (working hours, buffers).
@@ -66,9 +66,12 @@ async function withPlatformRetry(userId, platform, actionFn) {
     const result = await actionFn(user.googleAccessToken, user.googleRefreshToken);
 
     if (result.newTokens) {
-      if (result.newTokens.access_token) user.googleAccessToken = result.newTokens.access_token;
-      if (result.newTokens.refresh_token) user.googleRefreshToken = result.newTokens.refresh_token;
-      await user.save();
+      const latestUser = await Employee.findById(userId);
+      if (latestUser) {
+        if (result.newTokens.access_token) latestUser.googleAccessToken = result.newTokens.access_token;
+        if (result.newTokens.refresh_token) latestUser.googleRefreshToken = result.newTokens.refresh_token;
+        await latestUser.save();
+      }
     }
 
     if (!result.success) throw new Error(result.error || `Failed Google Meet action.`);
@@ -88,7 +91,8 @@ async function createPlatformMeeting(platform, meetingPayload, user, userId) {
 
   return {
     joinUrl: result.meetingUrl || result.hangoutLink,
-    externalId: result.meetingId || result.eventId
+    externalId: result.eventId || result.meetingId || result.eventId, // result.eventId is used for google
+    newTokens: result.newTokens
   };
 }
 
@@ -277,6 +281,10 @@ const deleteMeeting = async (meetingId, userId, userEmail) => {
   if (!meeting) throw new Error("Meeting not found.");
   if (meeting.status === "cancelled") throw new Error("Meeting is already cancelled.");
   if (meeting.organizerEmail !== userEmail) throw new Error("Only the organizer can cancel this meeting.");
+
+  if (new Date(meeting.startTime) < new Date()) {
+    throw new Error("Past meetings cannot be cancelled.");
+  }
 
   if (meeting.externalId) {
     await withPlatformRetry(userId, meeting.platform, async (accessToken, refreshToken) => {

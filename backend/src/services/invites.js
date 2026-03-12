@@ -1,5 +1,5 @@
 const nodemailer = require('nodemailer');
-const { buildInviteHTML, buildCancellationHTML, buildUpdateHTML } = require('./email-template-service');
+const { buildInviteHTML, buildCancellationHTML, buildUpdateHTML } = require('./templates');
 
 const createTransporter = () => {
   const { EMAIL_HOST, EMAIL_PORT, EMAIL_USER, EMAIL_PASS, EMAIL_SERVICE } = process.env;

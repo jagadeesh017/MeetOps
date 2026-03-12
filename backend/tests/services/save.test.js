@@ -1,10 +1,10 @@
-const { saveAndInvite } = require('../../src/services/meetingService');
+const { saveAndInvite } = require('../../src/services/save');
 const Meeting = require('../../src/models/meeting');
-const { sendMeetingInvites } = require('../../src/services/email-invite-service');
+const { sendMeetingInvites } = require('../../src/services/invites');
 
 // Mock the dependencies
 jest.mock('../../src/models/meeting');
-jest.mock('../../src/services/email-invite-service');
+jest.mock('../../src/services/invites');
 
 describe('Meeting Service', () => {
   beforeEach(() => {

@@ -1,4 +1,4 @@
-const meetingOps = require("./meeting-operations");
+const meetingOps = require("./operations");
 const { parseTime } = require("../utilities/date-utils");
 
 const STOP_WORDS = new Set(["meeting", "meet", "with", "on", "at", "for", "the", "a", "an", "my", "that", "this", "it"]);
@@ -50,16 +50,19 @@ const collectSearchMatches = async ({ userEmail, timezone, signals }) => {
     }
   };
 
+  const specificSearch = Boolean(signals.meetingRef || signals.title || signals.attendeeTokens.length || signals.parsedTime);
+  const findUpcomingOnly = !specificSearch;
+
   if (signals.explicitId) {
-    const byId = await meetingOps.findMeetingsBySearch(signals.explicitId, userEmail, true, timezone);
+    const byId = await meetingOps.findMeetingsBySearch(signals.explicitId, userEmail, findUpcomingOnly, timezone);
     addAll(byId);
     if (buckets.length) return buckets;
   }
 
-  if (signals.meetingRef) addAll(await meetingOps.findMeetingsBySearch(signals.meetingRef, userEmail, true, timezone));
-  if (signals.title) addAll(await meetingOps.findMeetingsBySearch(signals.title, userEmail, true, timezone));
-  if (signals.attendeeTokens.length) addAll(await meetingOps.findMeetingsBySearch(`with ${signals.attendeeTokens.join(" ")}`, userEmail, true, timezone));
-  if (signals.parsedTime) addAll(await meetingOps.findMeetingsBySearch(signals.parsedTime.toISOString(), userEmail, true, timezone));
+  if (signals.meetingRef) addAll(await meetingOps.findMeetingsBySearch(signals.meetingRef, userEmail, findUpcomingOnly, timezone));
+  if (signals.title) addAll(await meetingOps.findMeetingsBySearch(signals.title, userEmail, findUpcomingOnly, timezone));
+  if (signals.attendeeTokens.length) addAll(await meetingOps.findMeetingsBySearch(`with ${signals.attendeeTokens.join(" ")}`, userEmail, findUpcomingOnly, timezone));
+  if (signals.parsedTime) addAll(await meetingOps.findMeetingsBySearch(signals.parsedTime.toISOString(), userEmail, findUpcomingOnly, timezone));
 
   const fallback = await meetingOps.listResolvableMeetings(userEmail, true, 30);
   addAll(fallback);
@@ -102,12 +105,7 @@ const scoreMeeting = (meeting, signals) => {
 const resolveMeetingReference = async ({ userEmail, action, timezone = "UTC" }) => {
   const signals = extractSignals(action, timezone);
   const candidates = await collectSearchMatches({ userEmail, timezone, signals });
-  const now = new Date();
-  const future = candidates.filter((m) => new Date(m.startTime) > now);
-
-  if (!future.length) return { status: "not_found", meetings: [] };
-
-  const ranked = future
+  const ranked = candidates
     .map((meeting) => ({ meeting, score: scoreMeeting(meeting, signals) }))
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;

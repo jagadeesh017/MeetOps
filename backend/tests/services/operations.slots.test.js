@@ -3,9 +3,9 @@ jest.mock('../../src/models/meeting', () => ({
 }));
 
 const Meeting = require('../../src/models/meeting');
-const { suggestTimeSlots } = require('../../src/services/meeting-operations');
+const { suggestTimeSlots } = require('../../src/services/operations');
 
-describe('meeting-operations suggestTimeSlots', () => {
+describe('operations suggestTimeSlots', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     Meeting.findOne.mockResolvedValue(null);

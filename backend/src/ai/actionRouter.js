@@ -1,4 +1,4 @@
-const { runAction } = require("../services/ai-action-executor");
+const { runAction } = require("../services/executor");
 const Meeting = require("../models/meeting");
 
 const ACTION_MAP = {

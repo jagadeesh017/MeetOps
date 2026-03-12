@@ -6,7 +6,7 @@ const authRoutes = require("./src/routes/authRoutes");
 const integrationRoutes = require("./src/routes/integrationRoutes");
 const aiRoutes = require("./src/routes/aiRoutes");
 const settingsRoutes = require("./src/routes/settingsRoutes");
-const { startReminderScheduler } = require("./src/services/reminder-scheduler");
+const { startReminderScheduler } = require("./src/services/reminders");
 const connectDB = require("./src/config/db");
 
 const startServer = async () => {

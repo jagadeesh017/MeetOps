@@ -1,10 +1,10 @@
 const nodemailer = require('nodemailer');
-const { sendMeetingInvites, sendMeetingCancellations } = require('../../src/services/email-invite-service');
-const { buildInviteHTML, buildCancellationHTML } = require('../../src/services/email-template-service');
+const { sendMeetingInvites, sendMeetingCancellations } = require('../../src/services/invites');
+const { buildInviteHTML, buildCancellationHTML } = require('../../src/services/templates');
 
 // Mock dependencies
 jest.mock('nodemailer');
-jest.mock('../../src/services/email-template-service');
+jest.mock('../../src/services/templates');
 jest.mock('ical-generator', () => {
   const mockEvent = {
     createAttendee: jest.fn()
@@ -166,7 +166,7 @@ describe('Email Invite Service', () => {
       delete process.env.EMAIL_PASS;
 
       expect(() => {
-        require('../../src/services/email-invite-service');
+        require('../../src/services/invites');
       }).toBeDefined();
     });
 

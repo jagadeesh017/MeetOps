@@ -1,9 +1,9 @@
-jest.mock('../../src/services/meeting-operations');
+jest.mock('../../src/services/operations');
 
-const meetingOps = require('../../src/services/meeting-operations');
-const { resolveMeetingReference } = require('../../src/services/meeting-reference-resolver');
+const meetingOps = require('../../src/services/operations');
+const { resolveMeetingReference } = require('../../src/services/resolver');
 
-describe('meeting-reference-resolver', () => {
+describe('resolver', () => {
   beforeEach(() => {
     jest.resetAllMocks();
     meetingOps.parseTime.mockReturnValue(new Date('2028-01-01T10:00:00.000Z'));

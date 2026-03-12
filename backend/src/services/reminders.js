@@ -1,6 +1,6 @@
 const Meeting = require("../models/meeting");
 const Employee = require("../models/employee");
-const { sendMeetingReminder } = require("./email-invite-service");
+const { sendMeetingReminder } = require("./invites");
 const { DateTime } = require("luxon");
 
 let timer = null;

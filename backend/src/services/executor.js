@@ -1,7 +1,7 @@
-const meetingOps = require("./meeting-operations");
-const { resolveMeetingReference } = require("./meeting-reference-resolver");
+const meetingOps = require("./operations");
+const { resolveMeetingReference } = require("./resolver");
 const Employee = require("../models/employee");
-const { readPolicy } = require("./user-settings-policy");
+const { readPolicy } = require("./policies");
 const { parseTime } = require("../utilities/date-utils");
 
 const normalizePlatform = (platform) => {

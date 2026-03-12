@@ -6,28 +6,21 @@ const Employee = require('../models/employee');
 const hashToken = (token) =>
   crypto.createHash('sha256').update(token).digest('hex');
 
-// ─── Login ────────────────────────────────────────────────────────────────────
 exports.login = async (req, res) => {
   const { email, password } = req.body;
   try {
     const user = await Employee.findOne({ email });
     if (!user) return res.status(400).json({ message: "Invalid credentials" });
-
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ message: "Invalid credentials" });
-
-    // Short-lived access token (30 min)
     const accessToken = jwt.sign(
       { id: user._id },
       process.env.JWT_SECRET,
       { expiresIn: "30m" }
     );
-
-    // Long-lived refresh token (7 days) — stored hashed in DB
     const refreshToken = crypto.randomBytes(40).toString('hex');
     user.refreshToken = hashToken(refreshToken);
     await user.save();
-
     res.json({
       accessToken,
       refreshToken,
@@ -39,7 +32,6 @@ exports.login = async (req, res) => {
   }
 };
 
-// ─── Refresh ──────────────────────────────────────────────────────────────────
 exports.refresh = async (req, res) => {
   const { refreshToken } = req.body;
   if (!refreshToken) return res.status(401).json({ message: "No refresh token" });
@@ -62,14 +54,14 @@ exports.refresh = async (req, res) => {
   }
 };
 
-// ─── Logout ───────────────────────────────────────────────────────────────────
+
 exports.logout = async (req, res) => {
   const { refreshToken } = req.body;
   if (refreshToken) {
     await Employee.findOneAndUpdate(
       { refreshToken: hashToken(refreshToken) },
       { refreshToken: null }
-    ).catch(() => {});
+    ).catch(() => { });
   }
   res.json({ success: true });
 };

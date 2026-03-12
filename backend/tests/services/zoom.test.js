@@ -1,4 +1,4 @@
-const zoomService = require('../../src/services/zoom-service');
+const zoomService = require('../../src/services/zoom');
 const axios = require('axios');
 
 jest.mock('axios');

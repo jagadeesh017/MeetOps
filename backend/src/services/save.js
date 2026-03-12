@@ -1,5 +1,5 @@
 const Meeting = require("../models/meeting");
-const { sendMeetingInvites } = require("./email-invite-service");
+const { sendMeetingInvites } = require("./invites");
 
 async function saveAndInvite(meetingDocs, invitePayload) {
   if (!Array.isArray(meetingDocs) || meetingDocs.length === 0) return [];

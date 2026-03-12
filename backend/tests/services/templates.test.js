@@ -1,4 +1,4 @@
-const emailTemplateService = require('../../src/services/email-template-service');
+const emailTemplateService = require('../../src/services/templates');
 
 describe('Email Template Service', () => {
   describe('buildInviteHTML', () => {

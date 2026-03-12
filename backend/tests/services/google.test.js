@@ -1,4 +1,4 @@
-const googleMeetService = require('../../src/services/google-meet-service');
+const googleMeetService = require('../../src/services/google');
 const { google } = require('googleapis');
 
 jest.mock('googleapis');

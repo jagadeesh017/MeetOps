@@ -1,6 +1,6 @@
 const { DateTime } = require("luxon");
 const Meeting = require("../models/meeting");
-const { hasBufferConflict } = require("./user-settings-policy");
+const { hasBufferConflict } = require("./policies");
 
 const isTimeAvailable = async (attendeeEmails, startTime, duration) => {
     try {

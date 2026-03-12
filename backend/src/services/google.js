@@ -7,12 +7,17 @@ async function getGoogleCalendar(userTokens) {
   const oauth2Client = new google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI || 'http://localhost');
   oauth2Client.setCredentials({ refresh_token: userTokens.refreshToken, access_token: userTokens.accessToken });
 
+  let newTokens = null;
   try {
     const { credentials } = await oauth2Client.refreshAccessToken();
     oauth2Client.setCredentials(credentials);
+    newTokens = credentials;
   } catch { }
 
-  return google.calendar({ version: 'v3', auth: oauth2Client });
+  return {
+    calendar: google.calendar({ version: 'v3', auth: oauth2Client }),
+    newTokens
+  };
 }
 
 function handleGoogleError(error) {
@@ -25,7 +30,7 @@ function handleGoogleError(error) {
 async function createGoogleMeetMeeting(meetingData, userTokens) {
   try {
     const { title, startTime, endTime, organizerEmail, attendees, timezone, description } = meetingData;
-    const calendar = await getGoogleCalendar(userTokens);
+    const { calendar, newTokens } = await getGoogleCalendar(userTokens);
 
     const googleAttendees = (attendees || []).map(a => ({ email: typeof a === 'string' ? a : a.email }));
     if (organizerEmail) googleAttendees.unshift({ email: organizerEmail, organizer: true });
@@ -43,7 +48,7 @@ async function createGoogleMeetMeeting(meetingData, userTokens) {
     const meetLink = response.data.conferenceData?.entryPoints?.find(ep => ep.entryPointType === 'video')?.uri || response.data.hangoutLink;
     if (!meetLink) throw new Error('Google Meet link not generated');
 
-    return { success: true, meetingUrl: meetLink, hangoutLink: meetLink, eventId: response.data.id, platform: 'meet' };
+    return { success: true, meetingUrl: meetLink, hangoutLink: meetLink, eventId: response.data.id, platform: 'meet', newTokens };
   } catch (error) {
     return { ...handleGoogleError(error), meetingUrl: null };
   }
@@ -52,7 +57,7 @@ async function createGoogleMeetMeeting(meetingData, userTokens) {
 async function updateGoogleMeetEvent(eventId, updateData, userTokens) {
   try {
     const { title, startTime, endTime, timezone, description, attendees, organizerEmail } = updateData;
-    const calendar = await getGoogleCalendar(userTokens);
+    const { calendar, newTokens } = await getGoogleCalendar(userTokens);
 
     const resource = {};
     if (title) resource.summary = title;
@@ -66,7 +71,7 @@ async function updateGoogleMeetEvent(eventId, updateData, userTokens) {
     }
 
     const response = await calendar.events.patch({ calendarId: 'primary', eventId, resource, sendUpdates: 'all' });
-    return { success: true, eventId: response.data.id };
+    return { success: true, eventId: response.data.id, newTokens };
   } catch (error) {
     return handleGoogleError(error);
   }
@@ -74,9 +79,9 @@ async function updateGoogleMeetEvent(eventId, updateData, userTokens) {
 
 async function deleteGoogleMeetEvent(eventId, userTokens) {
   try {
-    const calendar = await getGoogleCalendar(userTokens);
+    const { calendar, newTokens } = await getGoogleCalendar(userTokens);
     await calendar.events.delete({ calendarId: 'primary', eventId, sendUpdates: 'all' });
-    return { success: true };
+    return { success: true, newTokens };
   } catch (error) {
     return handleGoogleError(error);
   }

@@ -81,6 +81,7 @@ const friendlyError = (err, settings = {}) => {
   if (msg.includes("Failed to create Google Meet")) return "I couldn't create the Google Meet right now. Please reconnect Google Calendar and try again.";
   if (msg.includes("Failed to create Zoom meeting")) return "I couldn't create the Zoom meeting right now. Please reconnect Zoom and try again.";
   if (msg.includes("meeting_not_found") || msg.includes("Meeting not found")) return "I couldn't find that meeting. Please share meeting title, attendee, or time.";
+  if (msg.includes("Past meetings cannot be cancelled")) return "Past meetings cannot be cancelled.";
   if (msg.includes("not found. Use a person name, email, or group name")) return msg;
   if (msg.includes("missing_change")) return "What should I change for that meeting?";
   if (msg.includes("conflicting meeting")) return includeConflictDetails ? msg : "That time conflicts with another meeting. Please choose another time.";

@@ -1,20 +1,23 @@
 const meetingController = require('../../src/controllers/meetingController');
 const Meeting = require('../../src/models/meeting');
 const Employee = require('../../src/models/employee');
-const zoomService = require('../../src/services/zoom-service');
-const googleMeetService = require('../../src/services/google-meet-service');
-const meetingService = require('../../src/services/meetingService');
-const emailService = require('../../src/services/email-invite-service');
-const conflictService = require('../../src/services/conflictService');
+const zoomService = require('../../src/services/zoom');
+const googleMeetService = require('../../src/services/google');
+const save = require('../../src/services/save');
+const emailService = require('../../src/services/invites');
+const conflicts = require('../../src/services/conflicts');
 const recurrenceUtil = require('../../src/utilities/recurrence');
+
+const Cluster = require('../../src/models/groups');
 
 jest.mock('../../src/models/meeting');
 jest.mock('../../src/models/employee');
-jest.mock('../../src/services/zoom-service');
-jest.mock('../../src/services/google-meet-service');
-jest.mock('../../src/services/meetingService');
-jest.mock('../../src/services/email-invite-service');
-jest.mock('../../src/services/conflictService');
+jest.mock('../../src/models/groups');
+jest.mock('../../src/services/zoom');
+jest.mock('../../src/services/google');
+jest.mock('../../src/services/save');
+jest.mock('../../src/services/invites');
+jest.mock('../../src/services/conflicts');
 jest.mock('../../src/utilities/recurrence');
 
 describe('Meeting Controller', () => {
@@ -118,14 +121,20 @@ describe('Meeting Controller', () => {
       });
 
       Employee.find.mockReturnValue({
-        select: jest.fn().mockResolvedValue([
+        select: jest.fn().mockReturnThis(),
+        lean: jest.fn().mockResolvedValue([
           { email: 'attendee1@example.com', name: 'Attendee 1' },
           { email: 'attendee2@example.com', name: 'Attendee 2' }
         ])
       });
 
-      conflictService.hasConflict.mockResolvedValue(null);
-      conflictService.checkAttendeesConflicts.mockResolvedValue([]);
+      Cluster.find.mockReturnValue({
+        select: jest.fn().mockReturnThis(),
+        lean: jest.fn().mockResolvedValue([])
+      });
+
+      conflicts.hasConflict.mockResolvedValue(null);
+      conflicts.checkAttendeesConflicts.mockResolvedValue([]);
       recurrenceUtil.generateSlots.mockReturnValue([
         { startTime: new Date('2026-04-01T10:00:00Z'), endTime: new Date('2026-04-01T11:00:00Z') }
       ]);
@@ -134,7 +143,7 @@ describe('Meeting Controller', () => {
         meetingUrl: 'https://zoom.us/j/123456',
         meetingId: '123456'
       });
-      meetingService.saveAndInvite.mockResolvedValue([{ _id: 'meeting123', title: 'Team Meeting' }]);
+      save.saveAndInvite.mockResolvedValue([{ _id: 'meeting123', title: 'Team Meeting' }]);
     });
 
     it('should create a meeting successfully', async () => {
@@ -143,12 +152,12 @@ describe('Meeting Controller', () => {
         title: 'Team Meeting'
       };
 
-      meetingService.saveAndInvite.mockResolvedValue([mockMeeting]);
+      save.saveAndInvite.mockResolvedValue([mockMeeting]);
 
       await meetingController.createMeeting(req, res);
 
       expect(Employee.findById).toHaveBeenCalledWith('user123');
-      expect(meetingService.saveAndInvite).toHaveBeenCalled();
+      expect(save.saveAndInvite).toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(201);
       expect(res.json).toHaveBeenCalledWith(mockMeeting);
     });
@@ -202,12 +211,12 @@ describe('Meeting Controller', () => {
         { startTime: new Date('2026-04-02T10:00:00Z'), endTime: new Date('2026-04-02T11:00:00Z') }
       ]);
 
-      meetingService.saveAndInvite.mockResolvedValue(mockMeetings);
+      save.saveAndInvite.mockResolvedValue(mockMeetings);
 
       await meetingController.createMeeting(req, res);
 
       expect(recurrenceUtil.generateSlots).toHaveBeenCalled();
-      expect(meetingService.saveAndInvite).toHaveBeenCalled();
+      expect(save.saveAndInvite).toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(201);
     });
 
@@ -232,7 +241,7 @@ describe('Meeting Controller', () => {
     });
 
     it('should return available status when no conflicts', async () => {
-      conflictService.hasConflict.mockResolvedValue(null);
+      conflicts.hasConflict.mockResolvedValue(null);
 
       await meetingController.checkAttendeeAvailability(req, res);
 
@@ -245,7 +254,7 @@ describe('Meeting Controller', () => {
     });
 
     it('should return conflicts when attendees are busy', async () => {
-      conflictService.hasConflict.mockResolvedValue({
+      conflicts.hasConflict.mockResolvedValue({
         title: 'Another Meeting',
         startTime: new Date(),
         endTime: new Date()
@@ -275,7 +284,7 @@ describe('Meeting Controller', () => {
     });
 
     it('should handle errors', async () => {
-      conflictService.hasConflict.mockRejectedValue(new Error('Service error'));
+      conflicts.hasConflict.mockRejectedValue(new Error('Service error'));
 
       await meetingController.checkAttendeeAvailability(req, res);
 

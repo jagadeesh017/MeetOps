@@ -1,6 +1,6 @@
 const Meeting = require("../models/meeting");
 const Employee = require("../models/employee");
-const meetingOperations = require("../services/meeting-operations");
+const meetingOperations = require("../services/operations");
 
 exports.createMeeting = async (req, res) => {
   try {
