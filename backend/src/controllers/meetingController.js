@@ -42,7 +42,11 @@ exports.createMeeting = async (req, res) => {
     return res.status(201).json(meeting);
   } catch (err) {
     console.error("Create meeting error:", err);
-    return res.status(err.message === "buffer_conflict" ? 409 : 500).json({ error: err.message });
+    let status = 500;
+    if (err.message === "buffer_conflict") status = 409;
+    else if (err.message.includes("provide a valid date") || err.message.includes("specify at least one") || err.message.includes("past date")) status = 400;
+    else if (err.message.includes("not found")) status = 404;
+    return res.status(status).json({ message: err.message, error: err.message });
   }
 };
 

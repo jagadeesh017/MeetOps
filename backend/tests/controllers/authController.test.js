@@ -39,7 +39,7 @@ describe('Auth Controller', () => {
 
       expect(Employee.findOne).toHaveBeenCalledWith({ email: 'notfound@example.com' });
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.json).toHaveBeenCalledWith({ message: 'User not found' });
+      expect(res.json).toHaveBeenCalledWith({ message: 'Invalid credentials' });
     });
 
     it('should return 400 if password does not match', async () => {
@@ -72,8 +72,12 @@ describe('Auth Controller', () => {
 
       const mockUser = {
         _id: '123',
+        name: 'Test User',
         email: 'test@example.com',
-        password: 'hashedpassword'
+        password: 'hashedpassword',
+        department: 'Engineering',
+        settings: {},
+        save: jest.fn().mockResolvedValue()
       };
 
       const mockToken = 'jwt-token-12345';
@@ -89,9 +93,13 @@ describe('Auth Controller', () => {
       expect(jwt.sign).toHaveBeenCalledWith(
         { id: '123' },
         'test-secret',
-        { expiresIn: '1h' }
+        { expiresIn: '30m' }
       );
-      expect(res.json).toHaveBeenCalledWith({ token: mockToken });
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+        accessToken: mockToken,
+        refreshToken: expect.any(String),
+        user: expect.objectContaining({ id: '123' })
+      }));
     });
 
     it('should return 500 on server error', async () => {
@@ -120,7 +128,7 @@ describe('Auth Controller', () => {
 
       expect(Employee.findOne).toHaveBeenCalledWith({ email: '' });
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.json).toHaveBeenCalledWith({ message: 'User not found' });
+      expect(res.json).toHaveBeenCalledWith({ message: 'Invalid credentials' });
     });
   });
 });
