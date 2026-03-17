@@ -24,6 +24,7 @@ const mergeSettings = (current = {}, input = {}) => ({
     start: input.workHours?.start || current.workHours?.start || "09:00",
     end: input.workHours?.end || current.workHours?.end || "18:00",
     days: normalizeDays(input.workHours?.days || current.workHours?.days),
+    availableAllTime: Boolean(input.workHours?.availableAllTime ?? current.workHours?.availableAllTime ?? false),
   },
   ai: {
     autoConfirmBeforeCreate: Boolean(

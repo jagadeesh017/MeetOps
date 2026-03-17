@@ -1,7 +1,7 @@
 const Groq = require("groq-sdk");
 const { systemPrompt } = require("./systemPrompt");
 
-const MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
+const MODELS = ["openai/gpt-oss-20b","llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
 let groq = null;
 const getClient = () => {
   if (groq) return groq;
@@ -42,7 +42,15 @@ const hasRequiredData = (intent = {}) => {
   const data = intent.data || {};
   if (intent.action === "schedule_meeting") return Array.isArray(data.attendees) && data.attendees.length > 0 && Boolean(data.time);
   if (intent.action === "update_meeting") return Boolean(data.meetingRef || data.meeting_id || (Array.isArray(data.attendees) && data.attendees.length));
-  if (intent.action === "cancel_meeting") return Boolean(data.meetingRef || data.meeting_id || (Array.isArray(data.attendees) && data.attendees.length));
+  if (intent.action === "cancel_meeting") {
+    return Boolean(
+      data.meetingRef ||
+      data.meeting_id ||
+      data.time ||
+      data.title ||
+      (Array.isArray(data.attendees) && data.attendees.length)
+    );
+  }
   if (intent.action === "query_meetings") return true;
   if (intent.action === "find_available_slots") return true;
   return true;

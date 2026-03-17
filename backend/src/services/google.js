@@ -12,7 +12,15 @@ async function getGoogleCalendar(userTokens) {
     const { credentials } = await oauth2Client.refreshAccessToken();
     oauth2Client.setCredentials(credentials);
     newTokens = credentials;
-  } catch { }
+  } catch (refreshErr) {
+    //refresh err
+    const msg = refreshErr?.message || '';
+    const data = refreshErr?.response?.data?.error || '';
+    if (msg.includes('invalid_grant') || data === 'invalid_grant' || msg.includes('Token has been expired')) {
+      throw new Error('invalid_grant');
+    }
+   
+  }
 
   return {
     calendar: google.calendar({ version: 'v3', auth: oauth2Client }),
@@ -21,10 +29,11 @@ async function getGoogleCalendar(userTokens) {
 }
 
 function handleGoogleError(error) {
-  if (error.message.includes('invalid_grant') || error.message.includes('401')) {
-    return { success: false, error: 'Invalid or expired Google token. Please reconnect.' };
+  const msg = error?.message || '';
+  if (msg === 'invalid_grant' || msg.includes('invalid_grant') || msg.includes('401') || msg.includes('Token has been expired')) {
+    return { success: false, error: 'Invalid or expired Google token. Please reconnect.', tokenExpired: true };
   }
-  return { success: false, error: error.response?.data?.error?.message || error.message };
+  return { success: false, error: error.response?.data?.error?.message || msg };
 }
 
 async function createGoogleMeetMeeting(meetingData, userTokens) {

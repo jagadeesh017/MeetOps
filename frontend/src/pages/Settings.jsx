@@ -10,7 +10,7 @@ const defaultForm = {
   defaultPlatform: "zoom",
   defaultDurationMinutes: 30,
   bufferMinutes: 10,
-  workHours: { start: "09:00", end: "18:00", days: [1, 2, 3, 4, 5] },
+  workHours: { start: "09:00", end: "18:00", days: [1, 2, 3, 4, 5], availableAllTime: false },
   ai: { autoConfirmBeforeCreate: false, includeConflictDetails: true },
   notifications: { emailRemindersEnabled: true, reminderMinutesBefore: 15 },
 };
@@ -47,6 +47,7 @@ export default function Settings() {
   }, [showToast]);
 
   const selectedDays = useMemo(() => new Set(form.workHours.days || []), [form.workHours.days]);
+  const isAvailableAllTime = Boolean(form.workHours.availableAllTime);
 
   const update = (path, value) => {
     setForm((prev) => {
@@ -119,12 +120,23 @@ export default function Settings() {
 
           <label className="text-sm">
             <span className="mb-1 block font-medium text-slate-700 dark:text-slate-300">Work Start</span>
-            <input type="time" value={form.workHours.start} onChange={(e) => update(["workHours", "start"], e.target.value)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100" />
+            <input type="time" value={form.workHours.start} disabled={isAvailableAllTime} onChange={(e) => update(["workHours", "start"], e.target.value)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100" />
           </label>
 
           <label className="text-sm">
             <span className="mb-1 block font-medium text-slate-700 dark:text-slate-300">Work End</span>
-            <input type="time" value={form.workHours.end} onChange={(e) => update(["workHours", "end"], e.target.value)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100" />
+            <input type="time" value={form.workHours.end} disabled={isAvailableAllTime} onChange={(e) => update(["workHours", "end"], e.target.value)} className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100" />
+          </label>
+        </div>
+
+        <div className="mt-4">
+          <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+            <input
+              type="checkbox"
+              checked={isAvailableAllTime}
+              onChange={(e) => update(["workHours", "availableAllTime"], e.target.checked)}
+            />
+            Available all time (disable working-hours restrictions)
           </label>
         </div>
 
@@ -135,8 +147,9 @@ export default function Settings() {
               <button
                 key={d.v}
                 type="button"
+                disabled={isAvailableAllTime}
                 onClick={() => toggleDay(d.v)}
-                className={`rounded-md border px-3 py-1.5 text-sm ${selectedDays.has(d.v) ? "border-slate-900 bg-slate-900 text-white dark:border-slate-200 dark:bg-blue-300 dark:text-slate-900" : "border-slate-300 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"}`}
+                className={`rounded-md border px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-60 ${selectedDays.has(d.v) ? "border-slate-900 bg-slate-900 text-white dark:border-slate-200 dark:bg-blue-300 dark:text-slate-900" : "border-slate-300 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"}`}
               >
                 {d.l}
               </button>

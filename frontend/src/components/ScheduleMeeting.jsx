@@ -55,6 +55,25 @@ function safeErrorMsg(err, fallback) {
     return msg.length < 100 && !msg.includes('videoResult') ? msg : fallback;
 }
 
+function formatSchedulingError(err, fallback) {
+    const code = err?.response?.data?.code;
+    const type = err?.response?.data?.unavailabilityType;
+
+    if (code === 'organizer_outside_working_hours' || type === 'organizer_working_hours') {
+        return 'This time is outside your working hours. Update your working-hours settings or enable Available all time.';
+    }
+
+    if (code === 'organizer_busy' || type === 'organizer_busy') {
+        return err?.response?.data?.message || 'You are already busy during this time slot.';
+    }
+
+    if (code === 'attendees_busy' || type === 'attendees_busy') {
+        return 'Some attendees are unavailable at this time. Please review attendee conflicts below.';
+    }
+
+    return safeErrorMsg(err, fallback);
+}
+
 function Label({ children }) {
     return <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5">{children}</label>;
 }
@@ -111,8 +130,8 @@ function BusyWarning({ busyAttendees, onProceed, onCancel, loading }) {
                     <ul className="space-y-1 text-xs">
                         {busyAttendees.map((a, idx) => (
                             <li key={idx} className="ml-4">
-                                <strong>{a.name}</strong> ({a.email})<br />
-                                <span className="text-yellow-600 dark:text-yellow-400">Busy ({a.conflictStartTime} - {a.conflictEndTime})</span>
+                                <strong>{a.name || a.email}</strong> ({a.email})<br />
+                                <span className="text-yellow-600 dark:text-yellow-400">Busy ({a.conflictStartTime || 'time unavailable'} - {a.conflictEndTime || 'time unavailable'})</span>
                             </li>
                         ))}
                     </ul>
@@ -301,11 +320,22 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
             setShowBusyWarning(false);
             onMeetingCreated?.(meeting);
         } catch (err) {
+            const errorMsg = formatSchedulingError(err, isEditMode ? 'Failed to update meeting' : 'Failed to create meeting');
+            // If Google token expired/invalid, refresh integration status to update UI
+            if (
+                (typeof errorMsg === 'string' && errorMsg.toLowerCase().includes('google token')) ||
+                err?.response?.data?.tokenExpired
+            ) {
+                getIntegrationStatus()
+                    .then(setIntegrations)
+                    .catch(() => {});
+            }
             if (err.response?.status === 409 && err.response?.data?.busyAttendees) {
                 setBusyAttendees(err.response.data.busyAttendees);
                 setShowBusyWarning(true);
+                setError(errorMsg);
             } else {
-                setError(safeErrorMsg(err, isEditMode ? 'Failed to update meeting' : 'Failed to create meeting'));
+                setError(errorMsg);
             }
         } finally {
             setLoading(false);
@@ -328,7 +358,7 @@ export default function ScheduleMeeting({ onClose, onMeetingCreated, initialDate
                 setBusyAttendees([]);
                 showToast('All attendees are available for this time slot', 'success');
             } else {
-                setBusyAttendees(result.busyAttendees);
+                setBusyAttendees(result.busyAttendees || []);
                 setShowBusyWarning(true);
             }
         } catch (err) {

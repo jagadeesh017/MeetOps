@@ -17,8 +17,8 @@ const resolveAttendees = async (attendeeRefs) => {
     }
 
     const [allEmployees, allGroups] = await Promise.all([
-        Employee.find().select("email name department").lean(),
-        Cluster.find().select("name").lean(),
+        Employee.find().select("email name department empId").lean(),
+        Cluster.find().select("name members").lean(),
     ]);
 
     const resolved = new Set();
@@ -41,8 +41,17 @@ const resolveAttendees = async (attendeeRefs) => {
             return gn === s || s.includes(gn) || gn.includes(s) ||
                 searchTokens.some((w) => gn.includes(w));
         });
-        const groupSearchBase = group ? normalizeLabel(group.name) : s;
 
+        // 1. Precise Match via members (empId)
+        if (group && group.members && group.members.length > 0) {
+            const memberEmails = allEmployees
+                .filter(e => group.members.includes(e.empId))
+                .map(e => e.email);
+            if (memberEmails.length > 0) return memberEmails;
+        }
+
+        // 2. Fallback: Department Match
+        const groupSearchBase = group ? normalizeLabel(group.name) : s;
         const deptMatches = allEmployees
             .filter((e) => {
                 const dept = normalizeLabel(e.department || "");

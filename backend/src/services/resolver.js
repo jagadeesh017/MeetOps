@@ -3,6 +3,8 @@ const { parseTime } = require("../utilities/date-utils");
 
 const STOP_WORDS = new Set(["meeting", "meet", "with", "on", "at", "for", "the", "a", "an", "my", "that", "this", "it"]);
 
+const DATE_HINT_REGEX = /\b(today|tomorrow|tonight|yesterday|next|this|monday|tuesday|wednesday|thursday|friday|saturday|sunday|jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b|\d{1,4}[\/-]\d{1,2}(?:[\/-]\d{1,4})?/i;
+
 const normalize = (value = "") =>
   String(value || "")
     .toLowerCase()
@@ -23,7 +25,9 @@ const extractSignals = (action = {}, timezone = "UTC") => {
   const title = String(action.title || "").trim();
   const titleTokens = tokenize(title);
   const refTokens = tokenize(meetingRef);
-  const parsedTime = action.time ? parseTime(action.time, timezone) : null;
+  const rawTime = String(action.time || "").trim();
+  const parsedTime = rawTime ? parseTime(rawTime, timezone) : null;
+  const timeHasExplicitDate = rawTime ? DATE_HINT_REGEX.test(rawTime) : false;
 
   return {
     explicitId,
@@ -31,7 +35,9 @@ const extractSignals = (action = {}, timezone = "UTC") => {
     title,
     titleTokens,
     refTokens,
+    rawTime,
     parsedTime,
+    timeHasExplicitDate,
     meetingRef,
   };
 };
@@ -97,6 +103,19 @@ const scoreMeeting = (meeting, signals) => {
     else if (diffMin <= 30) score += 35;
     else if (diffMin <= 120) score += 25;
     else if (diffMin <= 720) score += 12;
+
+    if (!signals.timeHasExplicitDate) {
+      const meetingDate = new Date(meeting.startTime);
+      const targetDate = new Date(signals.parsedTime);
+      const meetingMinuteOfDay = meetingDate.getUTCHours() * 60 + meetingDate.getUTCMinutes();
+      const targetMinuteOfDay = targetDate.getUTCHours() * 60 + targetDate.getUTCMinutes();
+      const clockDiff = Math.abs(meetingMinuteOfDay - targetMinuteOfDay);
+      const wrappedClockDiff = Math.min(clockDiff, 1440 - clockDiff);
+
+      if (wrappedClockDiff <= 5) score += 24;
+      else if (wrappedClockDiff <= 30) score += 18;
+      else if (wrappedClockDiff <= 60) score += 12;
+    }
   }
 
   return score;

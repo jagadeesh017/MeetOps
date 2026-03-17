@@ -26,6 +26,7 @@ const partsInTimezone = (dateInput, timezone) => {
 
 const readPolicy = (user = {}) => {
   const settings = user.settings || {};
+  const availableAllTime = Boolean(settings.workHours?.availableAllTime);
   const hasExplicitWorkHours = Boolean(settings?.workHours && (
     settings.workHours.start || settings.workHours.end || (Array.isArray(settings.workHours.days) && settings.workHours.days.length)
   ));
@@ -40,7 +41,8 @@ const readPolicy = (user = {}) => {
   return {
     timezone,
     bufferMinutes: hasExplicitBuffer ? bufferMinutes : 0,
-    enforceWorkingHours: hasExplicitWorkHours,
+    enforceWorkingHours: !availableAllTime && hasExplicitWorkHours,
+    availableAllTime,
     workStartMinute: parseHm(settings.workHours?.start, defaultSettings.workHours.start),
     workEndMinute: parseHm(settings.workHours?.end, defaultSettings.workHours.end),
     workDays: days,

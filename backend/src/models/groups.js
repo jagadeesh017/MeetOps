@@ -8,8 +8,7 @@ const ClusterSchema = new mongoose.Schema({
 
   members: [
     {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Employee",
+      type: String, // Stores custom empId
       required: true
     }
   ],

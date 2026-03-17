@@ -3,7 +3,7 @@ const Meeting = require("../models/meeting");
 const zoomService = require("./zoom");
 const googleMeetService = require("./google");
 const emailService = require("./invites");
-const { hasConflict } = require("./conflicts");
+const { hasConflict, checkAttendeesConflicts } = require("./conflicts");
 const { saveAndInvite } = require("./save");
 const { readPolicy, assertWithinWorkingPolicy, hasBufferConflict } = require("./policies");
 const { generateSlots } = require("../utilities/recurrence");
@@ -31,6 +31,18 @@ async function validateMeetingPolicy(user, userEmail, startTime, endTime, exclud
     if (blocked) throw new Error("buffer_conflict");
   }
 }
+
+const toBusyAttendeePayload = (busyAttendees = [], attendees = []) => {
+  const byEmail = new Map((attendees || []).map((a) => [a.email, a.name || a.email]));
+  return busyAttendees.map((b) => ({
+    email: b.email,
+    name: byEmail.get(b.email) || b.email,
+    conflictStart: b.conflictStart,
+    conflictEnd: b.conflictEnd,
+    conflictStartTime: new Date(b.conflictStart).toLocaleString(),
+    conflictEndTime: new Date(b.conflictEnd).toLocaleString(),
+  }));
+};
 
 
 async function withPlatformRetry(userId, platform, actionFn) {
@@ -74,7 +86,13 @@ async function withPlatformRetry(userId, platform, actionFn) {
       }
     }
 
-    if (!result.success) throw new Error(result.error || `Failed Google Meet action.`);
+    if (!result.success) {
+      // If the token is expired/revoked, mark the integration as disconnected so the user is prompted to reconnect
+      if (result.tokenExpired) {
+        await Employee.findByIdAndUpdate(userId, { googleConnected: false });
+      }
+      throw new Error(result.error || `Failed Google Meet action.`);
+    }
     return result;
   }
 }
@@ -122,7 +140,6 @@ const createMeeting = async (userId, userEmail, details) => {
 
   const user = await Employee.findById(userId);
   if (!user) throw new Error("User not found.");
-  const policy = readPolicy(user);
 
   const resolvedEmails = await resolveAttendees(attendees);
   const safeAttendees = resolvedEmails.map((email) => ({ email, name: email.split("@")[0] }));
@@ -147,9 +164,21 @@ const createMeeting = async (userId, userEmail, details) => {
   for (const slot of slots) {
     await validateMeetingPolicy(user, userEmail, slot.startTime, slot.endTime);
 
+    const organizerConflict = await hasConflict(userEmail, slot.startTime, slot.endTime);
+    if (organizerConflict) {
+      const err = new Error(`You have a conflicting meeting: "${organizerConflict.title}" at ${slot.startTime.toLocaleString()}`);
+      err.code = "organizer_busy";
+      throw err;
+    }
+
     if (!ignoreBusy) {
-      const conflict = await hasConflict(userEmail, slot.startTime, slot.endTime);
-      if (conflict) throw new Error(`You have a conflicting meeting: "${conflict.title}" at ${slot.startTime.toLocaleString()}`);
+      const attendeesBusy = await checkAttendeesConflicts(resolvedEmails, [slot]);
+      if (attendeesBusy.length > 0) {
+        const err = new Error("attendees_busy");
+        err.code = "attendees_busy";
+        err.busyAttendees = toBusyAttendeePayload(attendeesBusy, safeAttendees);
+        throw err;
+      }
     }
   }
 
@@ -206,12 +235,11 @@ const createMeeting = async (userId, userEmail, details) => {
 const updateMeeting = async (meetingId, userId, userEmail, updateData) => {
   const user = await Employee.findById(userId);
   if (!user) throw new Error("User not found.");
-  const policy = readPolicy(user);
 
   const meeting = await Meeting.findById(meetingId);
   if (!meeting) throw new Error("Meeting not found.");
   if (meeting.status === "cancelled") throw new Error("Cannot edit a cancelled meeting.");
-  if (meeting.organizerEmail !== userEmail) throw new Error("Only the organizer can edit this meeting.");
+  if ((meeting.organizerEmail || '').toLowerCase() !== (userEmail || '').toLowerCase()) throw new Error("Only the organizer can edit this meeting.");
 
   const { title, parsedTime, attendees, duration, description } = updateData;
   const newStart = parsedTime || meeting.startTime;
@@ -219,6 +247,25 @@ const updateMeeting = async (meetingId, userId, userEmail, updateData) => {
   const newEnd = parsedTime ? new Date(parsedTime.getTime() + (duration ? duration * 60000 : existingDurationMs)) : meeting.endTime;
 
   await validateMeetingPolicy(user, userEmail, newStart, newEnd, meetingId);
+
+  const organizerConflict = await hasConflict(userEmail, newStart, newEnd, meetingId);
+  if (organizerConflict) {
+    const err = new Error(`You have a conflicting meeting: "${organizerConflict.title}" at ${newStart.toLocaleString()}`);
+    err.code = "organizer_busy";
+    throw err;
+  }
+
+  const effectiveAttendees = attendees?.length
+    ? (await resolveAttendees(attendees)).map((email) => ({ email, name: email.split("@")[0] }))
+    : (meeting.attendees || []);
+  const attendeeEmails = effectiveAttendees.map((a) => a.email).filter(Boolean);
+  const attendeesBusy = await checkAttendeesConflicts(attendeeEmails, [{ startTime: newStart, endTime: newEnd }], meetingId);
+  if (attendeesBusy.length > 0) {
+    const err = new Error("attendees_busy");
+    err.code = "attendees_busy";
+    err.busyAttendees = toBusyAttendeePayload(attendeesBusy, effectiveAttendees);
+    throw err;
+  }
 
   if (new Date(newStart) <= new Date()) {
     throw new Error("Cannot schedule meeting for past date or time. Please select a future date and time.");
@@ -252,8 +299,7 @@ const updateMeeting = async (meetingId, userId, userEmail, updateData) => {
     meeting.reminderSentAt = null;
   }
   if (attendees?.length) {
-    const resolvedEmails = await resolveAttendees(attendees);
-    meeting.attendees = resolvedEmails.map((email) => ({ email, name: email.split("@")[0] }));
+    meeting.attendees = effectiveAttendees;
   }
   meeting.updatedAt = new Date();
   await meeting.save();

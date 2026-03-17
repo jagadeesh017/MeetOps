@@ -2,7 +2,10 @@ const Employee = require('../models/employee');
 const { google } = require('googleapis');
 const axios = require('axios');
 
-const GOOGLE_SCOPES = ['https://www.googleapis.com/auth/calendar.events', 'https://www.googleapis.com/auth/userinfo.email'];
+const GOOGLE_SCOPES = [
+  'https://www.googleapis.com/auth/calendar',
+  'https://www.googleapis.com/auth/userinfo.email'
+];
 const ZOOM_SCOPES = 'meeting:write:meeting meeting:write:meeting:admin meeting:delete:meeting meeting:delete:meeting:admin meeting:write meeting:write:admin user:read:user user:read';
 
 const getGoogleClient = () => new google.auth.OAuth2(
@@ -34,7 +37,8 @@ exports.googleCallback = async (req, res) => {
     const userInfo = await oauth2.userinfo.get();
 
     await Employee.findByIdAndUpdate(state, {
-      googleRefreshToken: tokens.refresh_token,
+      // Only update refresh token when Google actually returns a new one (it omits it on re-auth if already issued)
+      ...(tokens.refresh_token ? { googleRefreshToken: tokens.refresh_token } : {}),
       googleAccessToken: tokens.access_token,
       googleConnected: true,
       googleEmail: userInfo.data.email

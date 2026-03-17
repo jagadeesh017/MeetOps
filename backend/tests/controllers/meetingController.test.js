@@ -237,7 +237,7 @@ describe('Meeting Controller', () => {
 
       await meetingController.checkAttendeeAvailability(req, res);
 
-      expect(res.json).toHaveBeenCalledWith({ available: true });
+      expect(res.json).toHaveBeenCalledWith({ available: true, unavailabilityType: null, busyAttendees: [] });
     });
 
     it('should return conflicts when attendees are busy', async () => {
@@ -246,7 +246,7 @@ describe('Meeting Controller', () => {
 
       await meetingController.checkAttendeeAvailability(req, res);
 
-      expect(res.json).toHaveBeenCalledWith({ available: false });
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ available: false, unavailabilityType: 'attendees_busy' }));
     });
 
     it('should return 400 for missing fields', async () => {

@@ -5,15 +5,20 @@ const DEFAULT_SETTINGS = {
   defaultPlatform: 'zoom',
   defaultDurationMinutes: 30,
   bufferMinutes: 10,
-  workHours: { start: '09:00', end: '18:00', days: [1, 2, 3, 4, 5] },
+  workHours: { start: '9:00', end: '19:00', days: [1, 2, 3, 4, 5], availableAllTime: false },
   ai: { autoConfirmBeforeCreate: false, includeConflictDetails: true },
-  notifications: { emailRemindersEnabled: true, reminderMinutesBefore: 15 },
+  notifications: { emailRemindersEnabled: false, reminderMinutesBefore: 15 },
 };
 
 const EmployeeSchema = new mongoose.Schema({
   name: {
     type: String,
     required: true
+  },
+  empId: {
+    type: String,
+    required: true,
+    unique: true
   },
   email: {
     type: String,
@@ -51,6 +56,7 @@ const EmployeeSchema = new mongoose.Schema({
       start: { type: String, default: DEFAULT_SETTINGS.workHours.start },
       end: { type: String, default: DEFAULT_SETTINGS.workHours.end },
       days: { type: [Number], default: DEFAULT_SETTINGS.workHours.days },
+      availableAllTime: { type: Boolean, default: DEFAULT_SETTINGS.workHours.availableAllTime },
     },
     ai: {
       autoConfirmBeforeCreate: { type: Boolean, default: DEFAULT_SETTINGS.ai.autoConfirmBeforeCreate },
