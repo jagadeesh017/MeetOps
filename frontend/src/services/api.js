@@ -107,6 +107,10 @@ export const deleteMeeting = (id) =>
 export const checkAttendeeAvailability = (attendees, startTime, endTime, excludeMeetingId = null) =>
   api.post("/meetings/check-availability", { attendees, startTime, endTime, excludeMeetingId }).then((r) => r.data);
 
+// Returns array of hours (0-23) where NO meeting exists in the DB for the given date
+export const getGlobalFreeHours = (date) =>
+  api.get(`/meetings/free-hours?date=${date}`).then((r) => r.data.freeHours);
+
 export const disconnectIntegration = (platform) =>
   api.post("/integrations/disconnect", { platform }).then((r) => r.data);
 

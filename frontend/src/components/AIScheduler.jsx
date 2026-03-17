@@ -52,8 +52,8 @@ const MeetingCard = ({ meeting }) => {
     <div className="mt-2.5 rounded-xl overflow-hidden border border-white/20 text-sm bg-gradient-to-br from-white/10 to-white/[0.03]">
       <div className="px-3 py-2 font-semibold flex items-center justify-between gap-2 text-xs border-b border-white/10">
         <div className="flex items-center gap-1.5 min-w-0">
-        <span>📅</span>
-        <span className="truncate">{meeting.title}</span>
+          <span>📅</span>
+          <span className="truncate">{meeting.title}</span>
         </div>
         <span className={`shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-semibold ${platform.style}`}>
           <span className="w-4 h-4 rounded-full bg-white/20 inline-flex items-center justify-center text-[9px]">{platform.badge}</span>
@@ -148,11 +148,10 @@ const MessageBubble = ({ message }) => {
       {!isUser && <BotAvatar />}
 
       <div
-        className={`max-w-[78%] ${
-          isUser
+        className={`max-w-[78%] ${isUser
             ? "bg-gradient-to-br from-violet-600 to-indigo-600 text-white rounded-2xl rounded-br-sm shadow-md shadow-violet-900/30"
             : "bg-white dark:bg-[#1e1e2e] text-gray-900 dark:text-gray-100 rounded-2xl rounded-bl-sm shadow-sm border border-gray-100 dark:border-white/8"
-        } px-4 py-3`}
+          } px-4 py-3`}
       >
         {content && (
           <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{content}</p>
@@ -176,15 +175,15 @@ const MessageBubble = ({ message }) => {
 };
 
 const QUICK_PROMPTS = [
-  { icon: "📅", label: "Meetings today",    text: "What meetings do I have today?" },
-  { icon: "⏭️", label: "Next meeting",      text: "When is my next meeting?" },
-  { icon: "🕐", label: "Find free slots",   text: "Find my next available time slots" },
-  { icon: "📋", label: "All upcoming",      text: "List all my upcoming meetings" },
-  { icon: "✅", label: "Schedule meeting",  text: "Schedule a meeting" },
-  { icon: "🗑️", label: "Cancel meeting",   text: "Cancel a meeting" },
+  { icon: "📅", label: "Meetings today", text: "What meetings do I have today?" },
+  { icon: "⏭️", label: "Next meeting", text: "When is my next meeting?" },
+  { icon: "🕐", label: "Find free slots", text: "Find my next available time slots" },
+  { icon: "📋", label: "All upcoming", text: "List all my upcoming meetings" },
+  { icon: "✅", label: "Schedule meeting", text: "Schedule a meeting" },
+  { icon: "🗑️", label: "Cancel meeting", text: "Cancel a meeting" },
 ];
 
-export default function AIScheduler({ onClose, onMeetingCreated }) {
+export default function AIScheduler({ onClose, onMeetingCreated, embedded = false }) {
   const { user } = useContext(AuthContext);
   const [messages, setMessages] = useState([
     {
@@ -289,7 +288,7 @@ export default function AIScheduler({ onClose, onMeetingCreated }) {
 
   const showQuickPrompts = messages.length === 1 && !loading;
 
-  return (
+  const content = (
     <>
       <style>{`
         @keyframes mbFadeIn {
@@ -302,37 +301,38 @@ export default function AIScheduler({ onClose, onMeetingCreated }) {
         .mb-textarea { resize: none; outline: none; overflow: hidden; }
       `}</style>
 
-      <div className="fixed inset-0 z-50 bg-slate-900/35 backdrop-blur-[1px] p-2 sm:p-4 flex items-end sm:items-center sm:justify-end">
-      <div className="relative flex flex-col w-full sm:w-[430px] h-[78vh] sm:h-[86vh] max-h-[760px] overflow-hidden rounded-2xl border border-white/15 bg-gradient-to-b from-[#15192b] via-[#12172a] to-[#0f1425] shadow-2xl shadow-black/50">
+      <div className={`relative flex flex-col w-full ${embedded ? 'h-full bg-transparent' : 'sm:w-[430px] h-[78vh] sm:h-[86vh] max-h-[760px] rounded-2xl border border-white/15 bg-gradient-to-b from-[#15192b] via-[#12172a] to-[#0f1425] shadow-2xl shadow-black/50'} overflow-hidden`}>
 
-        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-[#11172a] shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-900/30">
-              <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z" />
-              </svg>
+        {!embedded && (
+          <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-[#11172a] shrink-0">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-900/30">
+                <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z" />
+                </svg>
+              </div>
+              <div>
+                <h2 className="text-white font-semibold text-sm leading-none">MeetBot</h2>
+                <p className="text-cyan-200/85 text-xs mt-0.5">Scheduling Assistant</p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-white font-semibold text-sm leading-none">MeetBot</h2>
-              <p className="text-cyan-200/85 text-xs mt-0.5">Scheduling Assistant</p>
+            <div className="flex items-center gap-2">
+              <span className="hidden sm:inline-flex items-center gap-1.5 text-[11px] text-emerald-300 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-400/25 font-medium">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                Online
+              </span>
+              <button
+                onClick={onClose}
+                aria-label="Close"
+                className="text-gray-400 hover:text-white transition-colors p-1.5 hover:bg-white/10 rounded-lg"
+              >
+                <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="hidden sm:inline-flex items-center gap-1.5 text-[11px] text-emerald-300 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-400/25 font-medium">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              Online
-            </span>
-            <button
-              onClick={onClose}
-              aria-label="Close"
-              className="text-gray-400 hover:text-white transition-colors p-1.5 hover:bg-white/10 rounded-lg"
-            >
-              <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-        </div>
+        )}
 
         <div className="flex-1 overflow-y-auto px-3.5 py-3.5 space-y-3 mb-scroll">
           {messages.map((msg, idx) => (
@@ -362,7 +362,7 @@ export default function AIScheduler({ onClose, onMeetingCreated }) {
           </div>
         )}
 
-        <div className="shrink-0 px-3.5 pb-3.5 pt-2.5 border-t border-white/10 bg-[#11172a]">
+        <div className={`shrink-0 px-3.5 pb-3.5 pt-2.5 border-t border-white/10 ${embedded ? '' : 'bg-[#11172a]'}`}>
           <div className="flex items-end gap-2 bg-white/8 border border-white/12 hover:border-white/20 focus-within:border-cyan-500/45 focus-within:bg-white/10 rounded-2xl px-3.5 py-2.5 transition-all duration-200">
             <textarea
               ref={(el) => {
@@ -401,7 +401,14 @@ export default function AIScheduler({ onClose, onMeetingCreated }) {
         </div>
 
       </div>
-      </div>
     </>
+  );
+
+  if (embedded) return content;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-900/35 backdrop-blur-[1px] p-2 sm:p-4 flex items-end sm:items-center sm:justify-end">
+      {content}
+    </div>
   );
 }

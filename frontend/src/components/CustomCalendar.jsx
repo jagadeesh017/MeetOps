@@ -1,6 +1,6 @@
-import { useState, useCallback, useContext, useEffect } from 'react';
+import { useState, useCallback, useContext, useEffect, useMemo } from 'react';
 import { AuthContext } from '../context/Authcontext';
-import { deleteMeeting, getMeetings } from '../services/api';
+import { deleteMeeting, getMeetings, getGlobalFreeHours } from '../services/api';
 import { getTimezoneList, getLocalTimezone } from '../utils/calendarUtils';
 import ScheduleMeeting from './ScheduleMeeting';
 import { useToast } from '../context/ToastContext';
@@ -215,6 +215,8 @@ export default function CustomCalendar() {
     const [deleting, setDeleting] = useState(false);
     const [editingMeeting, setEditingMeeting] = useState(null);
     const [currentTime, setCurrentTime] = useState(new Date());
+    // map of 'YYYY-MM-DD' -> Set<number> of free hours across ALL users
+    const [globalFreeHoursMap, setGlobalFreeHoursMap] = useState({});
     const { showToast } = useToast();
 
     useEffect(() => {
@@ -248,6 +250,44 @@ export default function CustomCalendar() {
     useEffect(() => {
         if (user?.settings?.timezone) setTimezone(user.settings.timezone);
     }, [user?.settings?.timezone]);
+
+    // Compute visible days for current view, then fetch global free hours for each
+    const visibleDays = useMemo(() => {
+        if (view === 'week') {
+            const start = new Date(currentDate);
+            start.setDate(start.getDate() - start.getDay());
+            return Array.from({ length: 7 }, (_, i) => {
+                const d = new Date(start);
+                d.setDate(start.getDate() + i);
+                return d;
+            });
+        }
+        if (view === 'day') return [currentDate];
+        return [];
+    }, [currentDate, view]);
+
+    useEffect(() => {
+        if (visibleDays.length === 0) return;
+        visibleDays.forEach(day => {
+            const key = day.toISOString().slice(0, 10);
+            if (globalFreeHoursMap[key]) return; // already fetched
+            getGlobalFreeHours(key)
+                .then(freeHours => {
+                    setGlobalFreeHoursMap(prev => ({ ...prev, [key]: new Set(freeHours) }));
+                })
+                .catch(() => { }); // silently ignore errors
+        });
+    }, [visibleDays]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Invalidate cache for a day after a meeting is created/deleted
+    const invalidateDayCache = (date) => {
+        const key = new Date(date).toISOString().slice(0, 10);
+        setGlobalFreeHoursMap(prev => {
+            const next = { ...prev };
+            delete next[key];
+            return next;
+        });
+    };
 
     const getWeekDays = () => {
         const start = new Date(currentDate);
@@ -397,6 +437,20 @@ export default function CustomCalendar() {
         return result;
     };
 
+    // Returns a Set of globally free hours for a day based on DB data
+    const getGlobalFreeHoursForDay = (day) => {
+        const key = day.toISOString().slice(0, 10);
+        return globalFreeHoursMap[key] || null; // null means not fetched yet
+    };
+
+    // Returns true if the given hour on the given day is already in the past
+    const isPastHour = (day, hour) => {
+        const now = new Date();
+        const slotEnd = new Date(day);
+        slotEnd.setHours(hour + 1, 0, 0, 0);
+        return slotEnd <= now;
+    };
+
     const renderWeekView = () => {
         const weekDays = getWeekDays();
         const slotHeight = 48;
@@ -440,13 +494,31 @@ export default function CustomCalendar() {
 
                             return (
                                 <div key={dayIdx} className="flex-1 border-l border-gray-200 dark:border-[#4a4a4a] relative">
-                                    {hours.map(hour => (
-                                        <div
-                                            key={hour}
-                                            onClick={() => handleSlotClick(day, hour)}
-                                            className="h-12 border-t border-gray-100 dark:border-[#3d3d3d] hover:bg-gray-50 dark:hover:bg-[#333333] cursor-pointer bg-white dark:bg-[#292929]"
-                                        />
-                                    ))}
+                                    {(() => {
+                                        const freeHours = getGlobalFreeHoursForDay(day);
+                                        return hours.map(hour => {
+                                            const past = isPastHour(day, hour);
+                                            const isFree = freeHours ? freeHours.has(hour) && !past : false;
+                                            return (
+                                                <div
+                                                    key={hour}
+                                                    onClick={() => !past && handleSlotClick(day, hour)}
+                                                    className={`h-12 border-t border-gray-100 dark:border-[#3d3d3d] transition group relative ${past
+                                                            ? 'cursor-not-allowed bg-white dark:bg-[#292929]'
+                                                            : isFree
+                                                                ? 'cursor-pointer bg-emerald-50/40 dark:bg-emerald-900/10 hover:bg-emerald-50/80 dark:hover:bg-emerald-900/25'
+                                                                : 'cursor-pointer bg-white dark:bg-[#292929] hover:bg-gray-50 dark:hover:bg-[#333333]'
+                                                        }`}
+                                                >
+                                                    {isFree && (
+                                                        <span className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition pointer-events-none">
+                                                            <span className="text-[9px] font-semibold text-emerald-500 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/40 px-1.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">Free</span>
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            );
+                                        });
+                                    })()}
 
                                     {dayMeetings.map((meeting, idx) => {
                                         const pos = calculateMeetingPosition(meeting, slotHeight);
@@ -563,13 +635,31 @@ export default function CustomCalendar() {
                                 </div>
                             )}
 
-                            {hours.map(hour => (
-                                <div
-                                    key={hour}
-                                    onClick={() => handleSlotClick(currentDate, hour)}
-                                    className="h-16 border-t border-gray-100 dark:border-[#3d3d3d] hover:bg-gray-50 dark:hover:bg-[#333333] cursor-pointer bg-white dark:bg-[#292929]"
-                                />
-                            ))}
+                            {(() => {
+                                const freeHours = getGlobalFreeHoursForDay(currentDate);
+                                return hours.map(hour => {
+                                    const past = isPastHour(currentDate, hour);
+                                    const isFree = freeHours ? freeHours.has(hour) && !past : false;
+                                    return (
+                                        <div
+                                            key={hour}
+                                            onClick={() => !past && handleSlotClick(currentDate, hour)}
+                                            className={`h-16 border-t border-gray-100 dark:border-[#3d3d3d] transition group relative ${past
+                                                    ? 'cursor-not-allowed bg-white dark:bg-[#292929]'
+                                                    : isFree
+                                                        ? 'cursor-pointer bg-emerald-50/40 dark:bg-emerald-900/10 hover:bg-emerald-50/80 dark:hover:bg-emerald-900/25'
+                                                        : 'cursor-pointer bg-white dark:bg-[#292929] hover:bg-gray-50 dark:hover:bg-[#333333]'
+                                                }`}
+                                        >
+                                            {isFree && (
+                                                <span className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition pointer-events-none">
+                                                    <span className="text-[10px] font-semibold text-emerald-500 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/40 px-2 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">Click to schedule</span>
+                                                </span>
+                                            )}
+                                        </div>
+                                    );
+                                });
+                            })()}
 
                             {(() => {
                                 const overlapLayout = layoutOverlappingMeetings(dayMeetings, slotHeight);

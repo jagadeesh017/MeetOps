@@ -3,6 +3,53 @@ const Employee = require("../models/employee");
 const meetingOperations = require("../services/operations");
 const { checkAttendeesConflicts } = require("../services/conflicts");
 
+// GET /meetings/free-hours?date=YYYY-MM-DD
+// Returns array of hours (0-23) where NO meeting (from any user) exists
+exports.globalFreeHours = async (req, res) => {
+  try {
+    const { date } = req.query;
+    if (!date) return res.status(400).json({ message: "date query param required" });
+
+    const dayStart = new Date(date);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(date);
+    dayEnd.setHours(23, 59, 59, 999);
+
+    // Fetch all active meetings on this day (any organiser, any attendee)
+    const meetings = await Meeting.find({
+      status: { $ne: "cancelled" },
+      startTime: { $lt: dayEnd },
+      endTime: { $gt: dayStart },
+    }).select("startTime endTime").lean();
+
+    // Mark every hour that has at least one meeting overlapping it
+    const busyHours = new Set();
+    for (const m of meetings) {
+      const mStart = new Date(m.startTime);
+      const mEnd = new Date(m.endTime);
+      for (let h = 0; h < 24; h++) {
+        const hStart = new Date(date);
+        hStart.setHours(h, 0, 0, 0);
+        const hEnd = new Date(date);
+        hEnd.setHours(h + 1, 0, 0, 0);
+        if (mStart < hEnd && mEnd > hStart) {
+          busyHours.add(h);
+        }
+      }
+    }
+
+    const freeHours = [];
+    for (let h = 0; h < 24; h++) {
+      if (!busyHours.has(h)) freeHours.push(h);
+    }
+
+    return res.json({ date, freeHours });
+  } catch (err) {
+    return res.status(500).json({ message: err.message });
+  }
+};
+
+
 const resolveAuthEmail = async (req) => {
   if (req.user?.email) return req.user.email;
   if (!req.user?.id) return null;

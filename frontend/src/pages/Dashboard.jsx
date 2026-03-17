@@ -123,12 +123,6 @@ export default function Dashboard() {
               onClick={integrations.zoom.connected ? () => setPendingDisconnect("zoom") : () => handleConnect(connectZoom, "Zoom")}
             />
             <button
-              onClick={() => setShowAIScheduler(true)}
-              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-            >
-              AI Scheduler
-            </button>
-            <button
               onClick={() => setShowScheduleForm(true)}
               className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-800 dark:bg-indigo-500 dark:hover:bg-indigo-400"
             >
